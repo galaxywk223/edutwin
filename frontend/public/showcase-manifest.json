@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "profile": "showcase",
+  "seed": 42,
+  "referenceTime": "2026-07-01T08:00:00.000Z",
+  "synthetic": true,
+  "inferenceMode": "RULE_FALLBACK_AND_TEMPLATE_DIAGNOSIS",
+  "entityCounts": {
+    "students": 96,
+    "classes": 4,
+    "courses": 6,
+    "teachers": 3,
+    "counselors": 1,
+    "administrators": 1
+  },
+  "restrictedSourceRows": 0,
+  "externalKeysRequired": false,
+  "dataSha256": "f1484658cf020848c2c35b4b530f670045cb423e9fcb1e9cf42e093ae3e86c83"
+}

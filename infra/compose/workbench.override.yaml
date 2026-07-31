@@ -1,0 +1,11 @@
+services:
+  mysql:
+    ports:
+      - "127.0.0.1:3307:3306"
+    networks:
+      - data
+      - workbench
+
+networks:
+  workbench:
+    name: ${COMPOSE_PROJECT_NAME:-edutwin}-workbench

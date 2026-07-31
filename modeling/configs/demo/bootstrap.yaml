@@ -1,0 +1,31 @@
+schema_version: 2
+seed: 42
+generator_version: frozen-model-bootstrap-v2
+
+paths:
+  students: ../data/demo/generated/database/students.csv
+  enrollments: ../data/demo/generated/database/enrollments.csv
+  courses: ../data/demo/generated/database/courses.csv
+  course_questions: ../data/demo/generated/database/course_questions.csv
+  knowledge_skills: ../data/demo/generated/database/knowledge_skills.csv
+  questions: ../data/demo/generated/database/questions.csv
+  answer_events: ../data/demo/generated/database/answer_events.csv
+  answer_event_skills: ../data/demo/generated/database/answer_event_skills.csv
+  learning_activity_events: ../data/demo/generated/database/learning_activity_events.csv
+  knowledge_lineage: ../data/demo/generated/database/knowledge_lineage.csv
+  demo_manifest: ../data/demo/generated/manifest.json
+  knowledge_freeze_manifest: artifacts/manifests/knowledge-freeze.json
+  risk_freeze_manifest: artifacts/manifests/risk-freeze.json
+  output: ../data/demo/generated/database/initial_states.jsonl
+  output_manifest: ../data/demo/generated/database/initial-states-manifest.json
+
+plan:
+  rule_version: planner-rules-v1
+  maximum_items: 5
+  target_mastery: 0.8
+  target_count: 3
+  valid_days: 7
+
+diagnosis:
+  requested_model: deepseek-v4-flash
+  fallback_version: template-diagnosis-v1

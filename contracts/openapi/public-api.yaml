@@ -1,0 +1,4484 @@
+openapi: 3.1.0
+jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
+info:
+  title: EduTwin Public API
+  version: 2.0.0
+  license:
+    name: Course demonstration use
+    identifier: LicenseRef-Course-Demonstration
+  description: |
+    EduTwin browser-facing contract. MySQL is the system of record. Redis values,
+    task state, and server-sent events are recoverable projections. Every traced
+    response identifies the accepted answer event, analysis job, preallocated or
+    persisted snapshot, data versions, and requested and effective model versions.
+    Authentication uses a stateless JWT with one active role and all granted roles.
+    Role, password, and account changes advance the token version and invalidate older
+    tokens. Logout consists of discarding the JWT in the browser.
+servers:
+  - url: http://127.0.0.1:8080
+    description: Local Compose deployment
+tags:
+  - name: Authentication
+    description: Role authentication and current-principal discovery.
+  - name: Role Sessions
+    description: Active-role switching without resubmitting credentials.
+  - name: Profile and Notifications
+    description: Self-service profile fields and in-app notifications.
+  - name: Assistant
+    description: Role-isolated persistent read-only assistant conversations and SSE events.
+  - name: Courses
+    description: Role-scoped course discovery.
+  - name: Teacher Dashboard
+    description: Aggregated risk, mastery, and activity views for assigned courses.
+  - name: Student Twin
+    description: Current and historical immutable student twin snapshots.
+  - name: Practice
+    description: Rule-selected questions and asynchronous answer acceptance.
+  - name: Analysis Jobs
+    description: Durable analysis state and resumable completion events.
+  - name: Learning Plans
+    description: Versioned plans whose task facts are produced by rules.
+  - name: Diagnosis
+    description: Structured evidence-bound AI diagnosis with template fallback.
+  - name: Counselor
+    description: Counselor-scoped student and class comparison views.
+  - name: Risk Interventions
+    description: Teacher and counselor risk-case workflows plus student action feedback.
+  - name: Transparency
+    description: Data provenance, model selection metrics, and artifact hashes.
+  - name: Administration
+    description: User, organization, academic-term, governance, and audit administration.
+  - name: Teacher LMS
+    description: Teacher-owned course, content, roster, assessment, and grade management.
+  - name: Student LMS
+    description: Published course content, lesson progress, assessment submission, and grades.
+security:
+  - bearerAuth: []
+paths:
+  /api/v1/auth/login:
+    post:
+      tags: [Authentication]
+      operationId: login
+      summary: Authenticate a teacher or student
+      description: Returns a short-lived JWT and the role-scoped course identifiers.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Authentication succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSession'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /api/v1/auth/me:
+    get:
+      tags: [Authentication]
+      operationId: getCurrentUser
+      summary: Return the authenticated principal
+      responses:
+        '200':
+          description: Current principal and authorized courses.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthenticatedUser'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/auth/password:
+    post:
+      tags: [Authentication]
+      operationId: changePassword
+      summary: Change the authenticated account password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordChangeRequest'
+      responses:
+        '204': { description: Password changed; the current token must be discarded. }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/v1/auth/role:
+    post:
+      tags: [Role Sessions]
+      operationId: switchActiveRole
+      summary: Switch the account's active role and issue a replacement token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [role]
+              properties:
+                role: { $ref: '#/components/schemas/UserRole' }
+      responses:
+        '200': { description: Replacement role session., content: { application/json: { schema: { $ref: '#/components/schemas/AuthSession' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/me/profile:
+    get:
+      tags: [Profile and Notifications]
+      operationId: getMyProfile
+      summary: Return official identity, organizations, roles, and editable profile fields
+      responses:
+        '200': { description: Current profile., content: { application/json: { schema: { $ref: '#/components/schemas/UserProfile' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    put:
+      tags: [Profile and Notifications]
+      operationId: updateMyProfile
+      summary: Update contact details, preset avatar, and theme color
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/UserProfileUpdate' } } }
+      responses:
+        '200': { description: Updated profile., content: { application/json: { schema: { $ref: '#/components/schemas/UserProfile' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+  /api/v1/notifications:
+    get:
+      tags: [Profile and Notifications]
+      operationId: listMyNotifications
+      summary: List the current user's in-app notifications
+      parameters:
+        - { name: page, in: query, schema: { type: integer, minimum: 0, default: 0 } }
+        - { name: size, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+      responses:
+        '200': { description: Paged notifications., content: { application/json: { schema: { $ref: '#/components/schemas/NotificationPage' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/v1/notifications/unread-count:
+    get:
+      tags: [Profile and Notifications]
+      operationId: getUnreadNotificationCount
+      summary: Return the current user's unread notification count
+      responses:
+        '200':
+          description: Unread count.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [count]
+                properties:
+                  count: { type: integer, format: int64, minimum: 0 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/v1/notifications/{notificationId}/read:
+    put:
+      tags: [Profile and Notifications]
+      operationId: markNotificationRead
+      summary: Mark one owned notification as read
+      parameters:
+        - { name: notificationId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Notification marked read. }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/notifications/read-all:
+    put:
+      tags: [Profile and Notifications]
+      operationId: markAllNotificationsRead
+      summary: Mark all owned notifications as read
+      responses:
+        '204': { description: All notifications marked read. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/v1/assistant/conversations:
+    get:
+      tags: [Assistant]
+      operationId: listAssistantConversations
+      summary: List conversations owned by the current user and active role
+      responses:
+        '200': { description: Role-isolated conversations., content: { application/json: { schema: { $ref: '#/components/schemas/AssistantConversationList' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Assistant]
+      operationId: createAssistantConversation
+      summary: Create a conversation for the current active role
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties: { title: { type: string, maxLength: 120 } }
+      responses:
+        '201': { description: Conversation created., content: { application/json: { schema: { $ref: '#/components/schemas/AssistantConversation' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/v1/assistant/conversations/{conversationId}:
+    parameters:
+      - { name: conversationId, in: path, required: true, schema: { type: string, format: uuid } }
+    put:
+      tags: [Assistant]
+      operationId: renameAssistantConversation
+      summary: Rename an owned role-isolated conversation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [title]
+              properties: { title: { type: string, minLength: 1, maxLength: 120 } }
+      responses:
+        '200': { description: Conversation renamed., content: { application/json: { schema: { $ref: '#/components/schemas/AssistantConversation' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Assistant]
+      operationId: deleteAssistantConversation
+      summary: Remove message bodies while retaining body-free audit metadata
+      responses:
+        '204': { description: Conversation deleted. }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/assistant/conversations/{conversationId}/messages:
+    parameters:
+      - { name: conversationId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Assistant]
+      operationId: listAssistantMessages
+      summary: List messages in an owned role-isolated conversation
+      responses:
+        '200': { description: Conversation messages., content: { application/json: { schema: { $ref: '#/components/schemas/AssistantMessageList' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [Assistant]
+      operationId: sendAssistantMessage
+      summary: Persist a message and start read-only tool-backed generation
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/AssistantSendRequest' } } }
+      responses:
+        '202': { description: Generation started., content: { application/json: { schema: { $ref: '#/components/schemas/AssistantMessageReceipt' } } } }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/assistant/messages/{messageId}/retry:
+    post:
+      tags: [Assistant]
+      operationId: retryAssistantMessage
+      summary: Retry an owned failed assistant message
+      parameters:
+        - { name: messageId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '202': { description: Retry started., content: { application/json: { schema: { $ref: '#/components/schemas/AssistantMessageReceipt' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/assistant/messages/{messageId}:
+    get:
+      tags: [Assistant]
+      operationId: getAssistantMessage
+      summary: Read one persisted assistant message for stream recovery
+      parameters:
+        - { name: messageId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Persisted message state., content: { application/json: { schema: { $ref: '#/components/schemas/AssistantMessage' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/assistant/messages/{messageId}/events:
+    get:
+      tags: [Assistant]
+      operationId: streamAssistantMessageEvents
+      summary: Stream persisted and live events for an owned assistant message
+      parameters:
+        - { name: messageId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: Last-Event-ID, in: header, required: false, schema: { type: integer, format: int64, minimum: 0 } }
+      responses:
+        '200':
+          description: Persisted and live assistant SSE events.
+          content:
+            text/event-stream:
+              schema: { $ref: '#/components/schemas/AssistantEvent' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/courses:
+    get:
+      tags: [Courses]
+      operationId: listAccessibleCourses
+      summary: List role-scoped courses
+      description: Students receive enrolled courses; teachers receive assigned courses.
+      responses:
+        '200':
+          description: Accessible courses.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CourseList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/teacher/courses/{courseId}/dashboard:
+    parameters:
+      - $ref: '#/components/parameters/CourseId'
+      - $ref: '#/components/parameters/AnalyticsPeriod'
+    get:
+      tags: [Teacher Dashboard]
+      operationId: getTeacherDashboard
+      summary: Return the teacher course dashboard
+      description: Access is restricted to teachers assigned to the requested course.
+      x-rbac: [TEACHER_ASSIGNED_TO_COURSE]
+      responses:
+        '200':
+          description: Current course risk and learning aggregates.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeacherDashboard'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/student/courses/{courseId}/analytics:
+    parameters:
+      - $ref: '#/components/parameters/CourseId'
+      - $ref: '#/components/parameters/AnalyticsPeriod'
+    get:
+      tags: [Student Twin]
+      operationId: getStudentAnalytics
+      summary: Return self-service learning trends and behavior analytics
+      x-rbac: [STUDENT_SELF]
+      responses:
+        '200':
+          description: Student learning analytics for the selected period.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StudentAnalytics'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/courses/{courseId}/students/{studentId}/twin/current:
+    parameters:
+      - $ref: '#/components/parameters/CourseId'
+      - $ref: '#/components/parameters/StudentId'
+    get:
+      tags: [Student Twin]
+      operationId: getCurrentTwin
+      summary: Return the current immutable twin snapshot
+      description: Students may read only their own twin; teachers may read enrolled students in assigned courses.
+      x-rbac: [STUDENT_SELF, TEACHER_ASSIGNED_TO_COURSE]
+      responses:
+        '200':
+          description: Current twin state, read from MySQL or a validated Redis projection.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwinState'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/courses/{courseId}/students/{studentId}/twin/history:
+    parameters:
+      - $ref: '#/components/parameters/CourseId'
+      - $ref: '#/components/parameters/StudentId'
+      - $ref: '#/components/parameters/BeforeVersion'
+      - $ref: '#/components/parameters/Limit'
+    get:
+      tags: [Student Twin]
+      operationId: getTwinHistory
+      summary: Return immutable twin snapshot history
+      description: Results are ordered by snapshotVersion descending.
+      x-rbac: [STUDENT_SELF, TEACHER_ASSIGNED_TO_COURSE]
+      responses:
+        '200':
+          description: Snapshot history.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TwinHistory'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/courses/{courseId}/practice/next:
+    parameters:
+      - $ref: '#/components/parameters/CourseId'
+    get:
+      tags: [Practice]
+      operationId: getNextPracticeQuestion
+      summary: Return the next rule-selected practice question
+      description: Access is restricted to the authenticated student's enrollment.
+      x-rbac: [STUDENT_SELF]
+      responses:
+        '200':
+          description: Next question and the twin trace used for selection.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PracticeQuestion'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/courses/{courseId}/answers:
+    parameters:
+      - $ref: '#/components/parameters/CourseId'
+    get:
+      tags: [Practice]
+      operationId: listAnswerHistory
+      summary: Return the authenticated student's course answer history
+      description: Results are ordered by eventSequence descending and include online and imported answer events.
+      x-rbac: [STUDENT_SELF]
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 0, default: 0 }
+        - name: size
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        '200':
+          description: Paged answer history for the authenticated student and course.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnswerHistoryPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Practice]
+      operationId: submitAnswer
+      summary: Accept an answer for asynchronous analysis
+      description: |
+        The transaction writes the answer event, a QUEUED analysis job with a
+        preallocated snapshot identifier, and an outbox event. The response does
+        not wait for FastAPI, Redis consumption, or the configured LLM. Replaying the same
+        key and canonical request returns the original job. Reusing the key with a
+        different request returns 409.
+      x-rbac: [STUDENT_SELF]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnswerSubmission'
+      responses:
+        '202':
+          description: Answer persisted and analysis queued.
+          headers:
+            Location:
+              required: true
+              description: Relative URL of the analysis job.
+              schema:
+                type: string
+            Retry-After:
+              required: true
+              description: Suggested polling delay in seconds.
+              schema:
+                type: integer
+                minimum: 1
+            Idempotency-Replayed:
+              required: true
+              description: Indicates that the original response was replayed.
+              schema:
+                type: boolean
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalysisJob'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+  /api/v1/analysis/jobs/{jobId}:
+    parameters:
+      - $ref: '#/components/parameters/JobId'
+    get:
+      tags: [Analysis Jobs]
+      operationId: getAnalysisJob
+      summary: Return durable analysis job state
+      description: Students may access their jobs; teachers may access jobs in assigned courses.
+      x-rbac: [STUDENT_SELF, TEACHER_ASSIGNED_TO_COURSE]
+      responses:
+        '200':
+          description: Current durable job state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalysisJob'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/analysis/jobs/{jobId}/events:
+    parameters:
+      - $ref: '#/components/parameters/JobId'
+      - $ref: '#/components/parameters/LastEventId'
+    get:
+      tags: [Analysis Jobs]
+      operationId: streamAnalysisJob
+      summary: Stream durable analysis progress
+      description: |
+        Each event uses the persisted per-job sequence as the SSE id. A reconnect
+        with Last-Event-ID replays later durable events and then continues live.
+        Authorization is identical to the job resource.
+      x-rbac: [STUDENT_SELF, TEACHER_ASSIGNED_TO_COURSE]
+      responses:
+        '200':
+          description: Server-sent job events ending in job.completed or job.failed.
+          headers:
+            Cache-Control:
+              required: true
+              schema:
+                type: string
+                const: no-cache
+          content:
+            text/event-stream:
+              schema:
+                $ref: '#/components/schemas/SseJobEvent'
+              x-sse-data-only: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/courses/{courseId}/students/{studentId}/learning-plans/current:
+    parameters:
+      - $ref: '#/components/parameters/CourseId'
+      - $ref: '#/components/parameters/StudentId'
+    get:
+      tags: [Learning Plans]
+      operationId: getCurrentLearningPlan
+      summary: Return the current rule-generated learning plan
+      x-rbac: [STUDENT_SELF, TEACHER_ASSIGNED_TO_COURSE]
+      responses:
+        '200':
+          description: Current learning plan.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LearningPlan'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/courses/{courseId}/students/{studentId}/learning-plans:
+    parameters:
+      - $ref: '#/components/parameters/CourseId'
+      - $ref: '#/components/parameters/StudentId'
+    post:
+      tags: [Learning Plans]
+      operationId: generateLearningPlan
+      summary: Generate a new rule-based plan version
+      description: |
+        The configured LLM cannot choose, remove, reorder, or mutate plan task facts. Plan
+        item progress is advanced only by accepted answer events in the analysis
+        workflow; this resource does not accept manual item-state mutation.
+      x-rbac: [STUDENT_SELF, TEACHER_ASSIGNED_TO_COURSE]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlanGenerationRequest'
+      responses:
+        '201':
+          description: New immutable plan version.
+          headers:
+            Location:
+              required: true
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LearningPlan'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/courses/{courseId}/students/{studentId}/learning-plans/current/lifecycle:
+    parameters:
+      - $ref: '#/components/parameters/CourseId'
+      - $ref: '#/components/parameters/StudentId'
+    get:
+      tags: [Learning Plans]
+      operationId: getCurrentLearningPlanLifecycle
+      summary: Return the current plan and mutable task lifecycle projection
+      x-rbac: [STUDENT_SELF, TEACHER_ASSIGNED_TO_COURSE]
+      responses:
+        '200': { description: Current plan lifecycle., content: { application/json: { schema: { $ref: '#/components/schemas/PlanLifecycle' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/courses/{courseId}/students/{studentId}/learning-plans/current/tasks/{taskId}/start:
+    parameters:
+      - $ref: '#/components/parameters/CourseId'
+      - $ref: '#/components/parameters/StudentId'
+      - { name: taskId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Learning Plans]
+      operationId: startCurrentLearningPlanTask
+      summary: Optimistically start a pending task in the current plan
+      x-rbac: [STUDENT_SELF]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/StartPlanTaskRequest' } } }
+      responses:
+        '200': { description: Updated plan lifecycle., content: { application/json: { schema: { $ref: '#/components/schemas/PlanLifecycle' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/courses/{courseId}/students/{studentId}/learning-plans/current/tasks/{taskId}/skip:
+    parameters:
+      - $ref: '#/components/parameters/CourseId'
+      - $ref: '#/components/parameters/StudentId'
+      - { name: taskId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Learning Plans]
+      operationId: skipCurrentLearningPlanTask
+      summary: Optimistically skip a pending or in-progress task
+      x-rbac: [STUDENT_SELF]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/SkipPlanTaskRequest' } } }
+      responses:
+        '200': { description: Updated plan lifecycle., content: { application/json: { schema: { $ref: '#/components/schemas/PlanLifecycle' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/courses/{courseId}/practice/tasks/{taskId}:
+    parameters:
+      - $ref: '#/components/parameters/CourseId'
+      - { name: taskId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Practice]
+      operationId: getLearningPlanPracticeTask
+      summary: Resolve a current plan task to its practice question
+      x-rbac: [STUDENT]
+      responses:
+        '200': { description: Practice task., content: { application/json: { schema: { $ref: '#/components/schemas/PlanPracticeTask' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/courses/{courseId}/students/{studentId}/diagnoses:
+    parameters:
+      - $ref: '#/components/parameters/CourseId'
+      - $ref: '#/components/parameters/StudentId'
+    post:
+      tags: [Diagnosis]
+      operationId: generateDiagnosis
+      summary: Generate a structured evidence-bound diagnosis
+      description: |
+        The active OpenAI-compatible model receives twin state and SHAP evidence through
+        registered tools. Provider failure returns the same schema from a template.
+        The embedded plan is always supplied by the rule engine.
+      x-rbac: [STUDENT_SELF, TEACHER_ASSIGNED_TO_COURSE]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DiagnosisRequest'
+      responses:
+        '200':
+          description: Structured diagnosis and rule-generated plan.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Diagnosis'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/admin/transparency:
+    get:
+      tags: [Transparency]
+      operationId: getTransparency
+      summary: Return the global data and model transparency catalog
+      description: The administrator catalog contains no student, answer, job, or snapshot identifiers.
+      x-rbac: [ADMIN]
+      responses:
+        '200':
+          description: Provenance, candidate metrics, and active model artifacts.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransparencyResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/admin/overview:
+    get:
+      tags: [Administration]
+      operationId: getAdminOverview
+      summary: Return aggregate system governance counts
+      x-rbac: [ADMIN]
+      responses:
+        '200':
+          description: Aggregate platform governance counts.
+          content: { application/json: { schema: { $ref: '#/components/schemas/AdminOverview' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/admin/users:
+    get:
+      tags: [Administration]
+      operationId: listAdminUsers
+      summary: List user accounts and role assignments
+      x-rbac: [ADMIN]
+      responses:
+        '200':
+          description: Accounts and all granted role assignments.
+          content: { application/json: { schema: { $ref: '#/components/schemas/AdminUserList' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Administration]
+      operationId: createAdminUser
+      summary: Create a user account with one role
+      x-rbac: [ADMIN]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/AdminUserCreateRequest' } } }
+      responses:
+        '201':
+          description: Account created.
+          content: { application/json: { schema: { $ref: '#/components/schemas/AdminUser' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/admin/users/{userId}:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    put:
+      tags: [Administration]
+      operationId: updateAdminUser
+      summary: Update a user account and role assignment
+      x-rbac: [ADMIN]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/AdminUserUpdateRequest' } } }
+      responses:
+        '200':
+          description: Account updated.
+          content: { application/json: { schema: { $ref: '#/components/schemas/AdminUser' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/admin/users/{userId}/organization:
+    parameters:
+      - { name: userId, in: path, required: true, schema: { type: string, format: uuid } }
+    put:
+      tags: [Administration]
+      operationId: replaceAdminUserOrganization
+      summary: Replace the user's primary organization membership
+      x-rbac: [ADMIN]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/UserOrganizationReplaceRequest' } } }
+      responses:
+        '204': { description: User organization replaced. }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/admin/organizations:
+    get:
+      tags: [Administration]
+      operationId: listAdminOrganizations
+      summary: Return the enabled and disabled organization hierarchy
+      x-rbac: [ADMIN]
+      responses:
+        '200': { description: Organization hierarchy., content: { application/json: { schema: { $ref: '#/components/schemas/OrganizationList' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Administration]
+      operationId: createAdminOrganization
+      summary: Create an organization unit
+      x-rbac: [ADMIN]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/OrganizationWriteRequest' } } }
+      responses:
+        '201': { description: Organization created., content: { application/json: { schema: { $ref: '#/components/schemas/OrganizationUnit' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/admin/organizations/{organizationId}:
+    parameters:
+      - { name: organizationId, in: path, required: true, schema: { type: string, format: uuid } }
+    put:
+      tags: [Administration]
+      operationId: updateAdminOrganization
+      summary: Update, move, enable, or disable an organization unit
+      x-rbac: [ADMIN]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/OrganizationWriteRequest' } } }
+      responses:
+        '200': { description: Organization updated., content: { application/json: { schema: { $ref: '#/components/schemas/OrganizationUnit' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/admin/organizations/{organizationId}/references:
+    parameters:
+      - { name: organizationId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Administration]
+      operationId: getAdminOrganizationReferences
+      summary: Preview user and course references before disabling an organization
+      x-rbac: [ADMIN]
+      responses:
+        '200': { description: Organization reference counts., content: { application/json: { schema: { $ref: '#/components/schemas/OrganizationReferences' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/admin/academic-terms:
+    get:
+      tags: [Administration]
+      operationId: listAdminAcademicTerms
+      summary: List academic terms and lifecycle states
+      x-rbac: [ADMIN]
+      responses:
+        '200': { description: Academic terms., content: { application/json: { schema: { $ref: '#/components/schemas/AcademicTermList' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Administration]
+      operationId: createAdminAcademicTerm
+      summary: Create an academic term
+      x-rbac: [ADMIN]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/AcademicTermWriteRequest' } } }
+      responses:
+        '201': { description: Academic term created., content: { application/json: { schema: { $ref: '#/components/schemas/AcademicTerm' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/admin/academic-terms/{termId}:
+    parameters:
+      - { name: termId, in: path, required: true, schema: { type: string, format: uuid } }
+    put:
+      tags: [Administration]
+      operationId: updateAdminAcademicTerm
+      summary: Update or enable an academic term
+      x-rbac: [ADMIN]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/AcademicTermWriteRequest' } } }
+      responses:
+        '200': { description: Academic term updated., content: { application/json: { schema: { $ref: '#/components/schemas/AcademicTerm' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/admin/imports/user-provisioning/templates/{template}:
+    get:
+      tags: [Administration]
+      operationId: downloadUserProvisioningTemplate
+      summary: Download an Excel or CSV user provisioning template
+      parameters:
+        - name: template
+          in: path
+          required: true
+          schema: { type: string, enum: [xlsx, users.csv, course_memberships.csv] }
+      responses:
+        '200':
+          description: Import template file.
+          content: { application/octet-stream: { schema: { type: string, format: binary } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+  /api/v1/admin/imports/user-provisioning/preview:
+    post:
+      tags: [Administration]
+      operationId: previewUserProvisioningImport
+      summary: Validate user provisioning files without database writes
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [files]
+              properties:
+                files: { type: array, minItems: 1, maxItems: 2, items: { type: string, format: binary } }
+      responses:
+        '200': { description: Import preview., content: { application/json: { schema: { $ref: '#/components/schemas/UserImportPreview' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+  /api/v1/admin/imports/user-provisioning:
+    post:
+      tags: [Administration]
+      operationId: commitUserProvisioningImport
+      summary: Atomically provision users and course memberships
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [files, expectedSha256]
+              properties:
+                files: { type: array, minItems: 1, maxItems: 2, items: { type: string, format: binary } }
+                expectedSha256: { type: string, pattern: '^[a-f0-9]{64}$' }
+      responses:
+        '200': { description: Import committed., content: { application/json: { schema: { $ref: '#/components/schemas/UserImportResult' } } } }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/admin/users/{userId}/password-reset:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [Administration]
+      operationId: resetAdminUserPassword
+      summary: Reset a user password to a temporary value
+      x-rbac: [ADMIN]
+      responses:
+        '200':
+          description: One-time temporary password.
+          content: { application/json: { schema: { $ref: '#/components/schemas/TemporaryPassword' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/admin/counselors/{counselorId}/scopes:
+    parameters:
+      - name: counselorId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Administration]
+      operationId: listCounselorScopes
+      summary: List the academic groups assigned to a counselor
+      x-rbac: [ADMIN]
+      responses:
+        '200':
+          description: Counselor scopes.
+          content: { application/json: { schema: { $ref: '#/components/schemas/CounselorScopeList' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    put:
+      tags: [Administration]
+      operationId: replaceCounselorScopes
+      summary: Replace all academic groups assigned to a counselor
+      x-rbac: [ADMIN]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CounselorScopeReplaceRequest' } } }
+      responses:
+        '200':
+          description: Counselor scopes replaced.
+          content: { application/json: { schema: { $ref: '#/components/schemas/CounselorScopeList' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/admin/student-groups:
+    get:
+      tags: [Administration]
+      operationId: listStudentGroups
+      summary: List distinct cohorts and classes available for counselor assignment
+      x-rbac: [ADMIN]
+      responses:
+        '200':
+          description: Academic groups.
+          content: { application/json: { schema: { $ref: '#/components/schemas/StudentGroupList' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/counselor/students:
+    get:
+      tags: [Counselor]
+      operationId: listCounselorStudents
+      summary: List students in the counselor's assigned academic groups
+      x-rbac: [COUNSELOR]
+      parameters:
+        - name: query
+          in: query
+          schema: { type: string, maxLength: 100 }
+        - name: cohortYear
+          in: query
+          schema: { type: integer, minimum: 2000, maximum: 2200 }
+        - name: className
+          in: query
+          schema: { type: string, maxLength: 200 }
+        - name: riskBand
+          in: query
+          schema: { $ref: '#/components/schemas/RiskBand' }
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 0, default: 0 }
+        - name: size
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 25 }
+      responses:
+        '200':
+          description: Paged counselor student summaries.
+          content: { application/json: { schema: { $ref: '#/components/schemas/CounselorStudentPage' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/counselor/students/{studentId}/overview:
+    parameters:
+      - $ref: '#/components/parameters/StudentId'
+    get:
+      tags: [Counselor]
+      operationId: getCounselorStudentOverview
+      summary: Return read-only cross-course statistics for an assigned student
+      x-rbac: [COUNSELOR]
+      responses:
+        '200':
+          description: Cross-course student overview.
+          content: { application/json: { schema: { $ref: '#/components/schemas/CounselorStudentOverview' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/counselor/classes/compare:
+    get:
+      tags: [Counselor]
+      operationId: compareCounselorClasses
+      summary: Compare aggregate learning and risk indicators across assigned classes
+      x-rbac: [COUNSELOR]
+      parameters:
+        - name: classNames
+          in: query
+          required: true
+          schema: { type: array, minItems: 1, uniqueItems: true, items: { type: string, minLength: 1, maxLength: 200 } }
+          style: form
+          explode: true
+        - $ref: '#/components/parameters/AnalyticsPeriod'
+      responses:
+        '200': { description: Class comparison., content: { application/json: { schema: { $ref: '#/components/schemas/CounselorClassComparisonResult' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/risk/cases:
+    get:
+      tags: [Risk Interventions]
+      operationId: listRiskCases
+      summary: List risk cases within the active teacher or counselor scope
+      x-rbac: [TEACHER, COUNSELOR]
+      parameters:
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/RiskCaseStatus' } }
+        - { name: assignedTo, in: query, schema: { type: string, format: uuid } }
+        - { name: page, in: query, schema: { type: integer, minimum: 0, default: 0 } }
+        - { name: size, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 25 } }
+      responses:
+        '200': { description: Paged risk cases., content: { application/json: { schema: { $ref: '#/components/schemas/RiskCasePage' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Risk Interventions]
+      operationId: createRiskCase
+      summary: Create a manual risk case in the active role scope
+      x-rbac: [TEACHER, COUNSELOR]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/RiskCaseCreateRequest' } } }
+      responses:
+        '200': { description: Risk case created., content: { application/json: { schema: { $ref: '#/components/schemas/RiskCaseDetail' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/risk/cases/{caseId}:
+    parameters:
+      - { name: caseId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Risk Interventions]
+      operationId: getRiskCase
+      summary: Return a risk case with assignment, note, and action history
+      x-rbac: [TEACHER, COUNSELOR]
+      responses:
+        '200': { description: Risk case detail., content: { application/json: { schema: { $ref: '#/components/schemas/RiskCaseDetail' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/risk/cases/{caseId}/assignment:
+    parameters:
+      - { name: caseId, in: path, required: true, schema: { type: string, format: uuid } }
+    put:
+      tags: [Risk Interventions]
+      operationId: assignRiskCase
+      summary: Optimistically assign a risk case to an eligible user
+      x-rbac: [TEACHER, COUNSELOR]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/RiskAssignmentRequest' } } }
+      responses:
+        '200': { description: Risk case assigned., content: { application/json: { schema: { $ref: '#/components/schemas/RiskCaseDetail' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/risk/cases/{caseId}/status:
+    parameters:
+      - { name: caseId, in: path, required: true, schema: { type: string, format: uuid } }
+    put:
+      tags: [Risk Interventions]
+      operationId: transitionRiskCase
+      summary: Optimistically transition a risk case lifecycle state
+      x-rbac: [TEACHER, COUNSELOR]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/RiskStatusRequest' } } }
+      responses:
+        '200': { description: Risk case transitioned., content: { application/json: { schema: { $ref: '#/components/schemas/RiskCaseDetail' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/risk/cases/{caseId}/notes:
+    parameters:
+      - { name: caseId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Risk Interventions]
+      operationId: addRiskCaseNote
+      summary: Add an internal note to a risk case
+      x-rbac: [TEACHER, COUNSELOR]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/RiskNoteRequest' } } }
+      responses:
+        '200': { description: Risk case with note., content: { application/json: { schema: { $ref: '#/components/schemas/RiskCaseDetail' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+  /api/v1/risk/cases/{caseId}/actions:
+    parameters:
+      - { name: caseId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Risk Interventions]
+      operationId: addRiskCaseAction
+      summary: Add a student-visible action item to a risk case
+      x-rbac: [TEACHER, COUNSELOR]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/RiskActionRequest' } } }
+      responses:
+        '200': { description: Risk case with action item., content: { application/json: { schema: { $ref: '#/components/schemas/RiskCaseDetail' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+  /api/v1/risk/cases/{caseId}/actions/{actionId}/status:
+    parameters:
+      - { name: caseId, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: actionId, in: path, required: true, schema: { type: string, format: uuid } }
+    put:
+      tags: [Risk Interventions]
+      operationId: updateRiskCaseActionStatus
+      summary: Transition a risk action item and record its result
+      x-rbac: [TEACHER, COUNSELOR]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/RiskActionStatusRequest' } } }
+      responses:
+        '200': { description: Risk case with updated action., content: { application/json: { schema: { $ref: '#/components/schemas/RiskCaseDetail' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/risk/me/actions:
+    get:
+      tags: [Risk Interventions]
+      operationId: listMyRiskActions
+      summary: List non-cancelled action items assigned to the current student
+      x-rbac: [STUDENT]
+      responses:
+        '200':
+          description: Student action items.
+          content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/StudentRiskAction' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/risk/me/actions/{actionId}/feedback:
+    parameters:
+      - { name: actionId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Risk Interventions]
+      operationId: addMyRiskActionFeedback
+      summary: Add feedback to an owned active action item
+      x-rbac: [STUDENT]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/RiskFeedbackRequest' } } }
+      responses:
+        '200': { description: Student action with feedback., content: { application/json: { schema: { $ref: '#/components/schemas/StudentRiskAction' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/admin/datasets:
+    get:
+      tags: [Administration]
+      operationId: listAdminDatasets
+      summary: List registered dataset versions and lifecycle states
+      x-rbac: [ADMIN]
+      responses:
+        '200':
+          description: Dataset lifecycle registry.
+          content: { application/json: { schema: { $ref: '#/components/schemas/AdminDatasetList' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/admin/datasets/{versionId}/status:
+    parameters:
+      - name: versionId
+        in: path
+        required: true
+        schema: { type: string, minLength: 1, maxLength: 100 }
+    put:
+      tags: [Administration]
+      operationId: changeAdminDatasetStatus
+      summary: Change a registered dataset lifecycle state
+      x-rbac: [ADMIN]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/AdminStatusRequest' } } }
+      responses:
+        '200':
+          description: Dataset lifecycle updated.
+          content: { application/json: { schema: { $ref: '#/components/schemas/AdminDatasetVersion' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/admin/datasets/{versionId}/impact:
+    parameters:
+      - { name: versionId, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 100 } }
+    get:
+      tags: [Administration]
+      operationId: previewAdminDatasetImpact
+      summary: Preview course and model references before a lifecycle transition
+      responses:
+        '200': { description: Reference impact., content: { application/json: { schema: { $ref: '#/components/schemas/AdminDatasetImpact' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/admin/model-deployments:
+    get:
+      tags: [Administration]
+      operationId: listAdminModelDeployments
+      summary: List active and rollback model deployment pointers
+      x-rbac: [ADMIN]
+      responses:
+        '200':
+          description: Active and rollback deployment pointers.
+          content: { application/json: { schema: { $ref: '#/components/schemas/AdminModelDeploymentList' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/admin/ai-configuration:
+    get:
+      tags: [Administration]
+      operationId: getAdminAiConfiguration
+      summary: Return the active redacted OpenAI-compatible model configuration
+      x-rbac: [ADMIN]
+      responses:
+        '200': { description: Redacted active configuration., content: { application/json: { schema: { $ref: '#/components/schemas/AdminAiConfiguration' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    put:
+      tags: [Administration]
+      operationId: activateAdminAiConfiguration
+      summary: Test and atomically activate an OpenAI-compatible model configuration
+      x-rbac: [ADMIN]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/AdminAiConfigurationUpdateRequest' } } }
+      responses:
+        '200': { description: Configuration activated., content: { application/json: { schema: { $ref: '#/components/schemas/AdminAiConfigurationActivationResult' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/BadRequest' }
+  /api/v1/admin/ai-configuration/restore-environment:
+    post:
+      tags: [Administration]
+      operationId: restoreAdminAiEnvironment
+      summary: Test and restore the deployment environment model configuration
+      x-rbac: [ADMIN]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/AdminAiConfigurationRestoreRequest' } } }
+      responses:
+        '200': { description: Environment configuration restored., content: { application/json: { schema: { $ref: '#/components/schemas/AdminAiConfigurationActivationResult' } } } }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/BadRequest' }
+  /api/v1/admin/model-deployments/{taskName}/rollback:
+    post:
+      tags: [Administration]
+      operationId: rollbackAdminModelDeployment
+      summary: Optimistically switch one task to a verified target model
+      x-rbac: [ADMIN]
+      parameters:
+        - { name: taskName, in: path, required: true, schema: { type: string, maxLength: 50 } }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/AdminModelRollbackRequest' } } }
+      responses:
+        '200':
+          description: One task deployment changed atomically.
+          content: { application/json: { schema: { $ref: '#/components/schemas/AdminModelRollbackResult' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/admin/audit-events:
+    get:
+      tags: [Administration]
+      operationId: listAdminAuditEvents
+      summary: List immutable administrator audit events
+      x-rbac: [ADMIN]
+      parameters:
+        - { name: page, in: query, schema: { type: integer, minimum: 0, default: 0 } }
+        - { name: size, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: to, in: query, schema: { type: string, format: date-time } }
+        - { name: actorUserId, in: query, schema: { type: string, format: uuid } }
+        - { name: action, in: query, schema: { type: string } }
+        - { name: targetType, in: query, schema: { type: string } }
+        - { name: outcome, in: query, schema: { type: string, enum: [SUCCEEDED, FAILED] } }
+      responses:
+        '200':
+          description: Latest immutable governance events.
+          content: { application/json: { schema: { $ref: '#/components/schemas/AdminAuditList' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/admin/audit-events/{auditId}:
+    get:
+      tags: [Administration]
+      operationId: getAdminAuditEvent
+      summary: Return one redacted audit event with metadata
+      parameters:
+        - { name: auditId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Complete redacted audit metadata., content: { application/json: { schema: { $ref: '#/components/schemas/AdminAuditEvent' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/admin/audit-events.csv:
+    get:
+      tags: [Administration]
+      operationId: exportAdminAuditEvents
+      summary: Export filtered redacted audit metadata as UTF-8 CSV
+      responses:
+        '200': { description: Audit CSV., content: { text/csv: { schema: { type: string } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/v1/lms/teacher/courses:
+    get:
+      tags: [Teacher LMS]
+      operationId: listManagedCourses
+      summary: List courses managed by the current teacher
+      responses:
+        '200':
+          description: Teacher-owned courses with LMS counts.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LmsCourseList'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Teacher LMS]
+      operationId: createManagedCourse
+      summary: Create a draft course assigned to the current teacher
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CourseMutationRequest'
+      responses:
+        '201':
+          description: Draft course created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LmsCourse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/lms/teacher/courses/{courseId}:
+    parameters:
+      - $ref: '#/components/parameters/CourseId'
+    put:
+      tags: [Teacher LMS]
+      operationId: updateManagedCourse
+      summary: Update a teacher-owned course
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CourseMutationRequest'
+      responses:
+        '200':
+          description: Course updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LmsCourse'
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/lms/teacher/courses/{courseId}/status:
+    parameters:
+      - $ref: '#/components/parameters/CourseId'
+    put:
+      tags: [Teacher LMS]
+      operationId: changeManagedCourseStatus
+      summary: Publish or archive a teacher-owned course
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LmsContentStatusChangeRequest'
+      responses:
+        '200':
+          description: Course status changed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LmsCourse'
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/lms/teacher/courses/{courseId}/status/preview:
+    parameters:
+      - $ref: '#/components/parameters/CourseId'
+    post:
+      tags: [Teacher LMS]
+      operationId: previewManagedCourseStatus
+      summary: Preview affected content, students, and submissions before a course transition
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/LmsContentStatusChangeRequest' } } }
+      responses:
+        '200': { description: Course lifecycle impact., content: { application/json: { schema: { $ref: '#/components/schemas/LifecycleImpactPreview' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/lms/teacher/courses/{courseId}/sections:
+    parameters:
+      - $ref: '#/components/parameters/CourseId'
+    get:
+      tags: [Teacher LMS]
+      operationId: getManagedCourseOutline
+      summary: Return all draft and published course content
+      responses:
+        '200':
+          description: Teacher course outline.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CourseOutline'
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [Teacher LMS]
+      operationId: createCourseSection
+      summary: Add a section to a teacher-owned course
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SectionMutationRequest'
+      responses:
+        '201':
+          description: Section created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LmsSection'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/lms/teacher/sections/{sectionId}/lessons:
+    parameters:
+      - $ref: '#/components/parameters/SectionId'
+    post:
+      tags: [Teacher LMS]
+      operationId: createSectionLesson
+      summary: Add a lesson to a teacher-owned section
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LessonMutationRequest'
+      responses:
+        '201':
+          description: Lesson created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LmsLesson'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/lms/teacher/sections/{sectionId}:
+    parameters:
+      - $ref: '#/components/parameters/SectionId'
+    put:
+      tags: [Teacher LMS]
+      operationId: updateManagedSection
+      summary: Update a draft section
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/SectionMutationRequest' } } }
+      responses:
+        '200': { description: Section updated., content: { application/json: { schema: { $ref: '#/components/schemas/LmsSection' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/lms/teacher/sections/{sectionId}/status:
+    parameters:
+      - $ref: '#/components/parameters/SectionId'
+    put:
+      tags: [Teacher LMS]
+      operationId: changeManagedSectionStatus
+      summary: Transition a section lifecycle state
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/LmsContentStatusChangeRequest' } } }
+      responses:
+        '200': { description: Section status changed., content: { application/json: { schema: { $ref: '#/components/schemas/LmsSection' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/lms/teacher/lessons/{lessonId}:
+    parameters:
+      - $ref: '#/components/parameters/LessonId'
+    put:
+      tags: [Teacher LMS]
+      operationId: updateManagedLesson
+      summary: Update a draft lesson
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/LessonMutationRequest' } } }
+      responses:
+        '200': { description: Lesson updated., content: { application/json: { schema: { $ref: '#/components/schemas/LmsLesson' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/lms/teacher/lessons/{lessonId}/status:
+    parameters:
+      - $ref: '#/components/parameters/LessonId'
+    put:
+      tags: [Teacher LMS]
+      operationId: changeManagedLessonStatus
+      summary: Transition a lesson lifecycle state
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/LmsContentStatusChangeRequest' } } }
+      responses:
+        '200': { description: Lesson status changed., content: { application/json: { schema: { $ref: '#/components/schemas/LmsLesson' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/lms/teacher/courses/{courseId}/sections/order:
+    parameters:
+      - $ref: '#/components/parameters/CourseId'
+    put:
+      tags: [Teacher LMS]
+      operationId: reorderManagedSections
+      summary: Replace the ordering of all non-archived sections
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/ContentOrderRequest' } } }
+      responses:
+        '204': { description: Sections reordered. }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/lms/teacher/sections/{sectionId}/lessons/order:
+    parameters:
+      - $ref: '#/components/parameters/SectionId'
+    put:
+      tags: [Teacher LMS]
+      operationId: reorderManagedLessons
+      summary: Replace the ordering of all non-archived lessons
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/ContentOrderRequest' } } }
+      responses:
+        '204': { description: Lessons reordered. }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/lms/teacher/courses/{courseId}/roster:
+    parameters:
+      - $ref: '#/components/parameters/CourseId'
+    get:
+      tags: [Teacher LMS]
+      operationId: getCourseRoster
+      summary: Return enrolled and available students
+      responses:
+        '200':
+          description: Course roster.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RosterList'
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/lms/teacher/courses/{courseId}/roster/{studentId}:
+    parameters:
+      - $ref: '#/components/parameters/CourseId'
+      - $ref: '#/components/parameters/StudentId'
+    put:
+      tags: [Teacher LMS]
+      operationId: updateCourseEnrollment
+      summary: Enroll, restore, or withdraw a student and append enrollment history
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EnrollmentUpdateRequest'
+      responses:
+        '204': { description: Enrollment updated. }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/lms/teacher/courses/{courseId}/knowledge-skills:
+    parameters:
+      - $ref: '#/components/parameters/CourseId'
+    get:
+      tags: [Teacher LMS]
+      operationId: listCourseKnowledgeSkills
+      summary: List knowledge skills available for assessment authoring
+      responses:
+        '200': { description: Course knowledge skills., content: { application/json: { schema: { $ref: '#/components/schemas/KnowledgeSkillList' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/lms/teacher/courses/{courseId}/assessments:
+    parameters:
+      - $ref: '#/components/parameters/CourseId'
+    get:
+      tags: [Teacher LMS]
+      operationId: listManagedAssessments
+      summary: List course assessments and submission counts
+      responses:
+        '200':
+          description: Managed assessments.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssessmentList'
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [Teacher LMS]
+      operationId: createAssessment
+      summary: Create a draft objective assessment with questions
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssessmentMutationRequest'
+      responses:
+        '201':
+          description: Assessment created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssessmentDetail'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/lms/teacher/assessments/{assessmentId}/status:
+    parameters:
+      - $ref: '#/components/parameters/AssessmentId'
+    put:
+      tags: [Teacher LMS]
+      operationId: changeAssessmentStatus
+      summary: Publish or archive an assessment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssessmentStatusChangeRequest'
+      responses:
+        '200':
+          description: Assessment status changed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssessmentDetail'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/lms/teacher/assessments/{assessmentId}:
+    parameters:
+      - $ref: '#/components/parameters/AssessmentId'
+    put:
+      tags: [Teacher LMS]
+      operationId: updateManagedAssessment
+      summary: Update a draft assessment and replace its questions
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/AssessmentMutationRequest' } } }
+      responses:
+        '200': { description: Assessment updated., content: { application/json: { schema: { $ref: '#/components/schemas/AssessmentDetail' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/lms/teacher/assessments/{assessmentId}/extend:
+    parameters:
+      - $ref: '#/components/parameters/AssessmentId'
+    post:
+      tags: [Teacher LMS]
+      operationId: extendManagedAssessment
+      summary: Extend an assessment due date and reopen a closed assessment when applicable
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/AssessmentDueDateRequest' } } }
+      responses:
+        '200': { description: Assessment extended., content: { application/json: { schema: { $ref: '#/components/schemas/AssessmentDetail' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/lms/teacher/assessments/{assessmentId}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/AssessmentId'
+    post:
+      tags: [Teacher LMS]
+      operationId: cancelManagedAssessment
+      summary: Cancel a published or closed assessment with a reason
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/AssessmentCancelRequest' } } }
+      responses:
+        '200': { description: Assessment cancelled., content: { application/json: { schema: { $ref: '#/components/schemas/AssessmentDetail' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/lms/teacher/assessments/{assessmentId}/clone:
+    parameters:
+      - $ref: '#/components/parameters/AssessmentId'
+    post:
+      tags: [Teacher LMS]
+      operationId: cloneManagedAssessment
+      summary: Clone an assessment and its questions into a new draft
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/AssessmentCloneRequest' } } }
+      responses:
+        '201': { description: Assessment clone created., content: { application/json: { schema: { $ref: '#/components/schemas/AssessmentDetail' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/lms/teacher/assessments/{assessmentId}/attempt-requests:
+    parameters:
+      - $ref: '#/components/parameters/AssessmentId'
+    get:
+      tags: [Teacher LMS]
+      operationId: listManagedAssessmentAttemptRequests
+      summary: List student attempt requests for a managed assessment
+      responses:
+        '200': { description: Attempt requests., content: { application/json: { schema: { $ref: '#/components/schemas/AttemptRequestList' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/lms/teacher/assessments/{assessmentId}/attempt-grants:
+    parameters:
+      - $ref: '#/components/parameters/AssessmentId'
+    post:
+      tags: [Teacher LMS]
+      operationId: grantManagedAssessmentAttempt
+      summary: Proactively approve an extra attempt for one enrolled student
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/AttemptRequestCreate' } } }
+      responses:
+        '201': { description: Attempt grant created., content: { application/json: { schema: { $ref: '#/components/schemas/AttemptRequest' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/lms/teacher/attempt-requests/{requestId}/decision:
+    parameters:
+      - { name: requestId, in: path, required: true, schema: { type: string, format: uuid } }
+    put:
+      tags: [Teacher LMS]
+      operationId: decideManagedAssessmentAttemptRequest
+      summary: Approve or reject a pending student attempt request
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/AttemptRequestDecision' } } }
+      responses:
+        '200': { description: Attempt request decided., content: { application/json: { schema: { $ref: '#/components/schemas/AttemptRequest' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/lms/teacher/assessments/{assessmentId}/submissions:
+    parameters:
+      - $ref: '#/components/parameters/AssessmentId'
+    get:
+      tags: [Teacher LMS]
+      operationId: listAssessmentSubmissions
+      summary: List student scores for an assessment
+      responses:
+        '200':
+          description: Assessment scores.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GradeList'
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/lms/courses/{courseId}:
+    parameters:
+      - $ref: '#/components/parameters/CourseId'
+    get:
+      tags: [Student LMS]
+      operationId: getPublishedCourse
+      summary: Return published course content and student progress
+      responses:
+        '200':
+          description: Published course outline.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CourseOutline'
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/lms/courses/{courseId}/lessons/{lessonId}/completion:
+    parameters:
+      - $ref: '#/components/parameters/CourseId'
+      - $ref: '#/components/parameters/LessonId'
+    put:
+      tags: [Student LMS]
+      operationId: completeLesson
+      summary: Mark one published lesson completed
+      responses:
+        '204': { description: Lesson marked complete. }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/lms/courses/{courseId}/assessments:
+    parameters:
+      - $ref: '#/components/parameters/CourseId'
+    get:
+      tags: [Student LMS]
+      operationId: listPublishedAssessments
+      summary: List published course assessments and own status
+      responses:
+        '200':
+          description: Student assessments.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssessmentList'
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/lms/assessments/{assessmentId}:
+    parameters:
+      - $ref: '#/components/parameters/AssessmentId'
+    get:
+      tags: [Student LMS]
+      operationId: getPublishedAssessment
+      summary: Return published objective questions without answer keys
+      responses:
+        '200':
+          description: Assessment detail.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssessmentDetail'
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/lms/assessments/{assessmentId}/submissions:
+    parameters:
+      - $ref: '#/components/parameters/AssessmentId'
+    get:
+      tags: [Student LMS]
+      operationId: getOwnAssessmentSubmission
+      summary: Return the current student's unique assessment submission
+      responses:
+        '200': { description: Student submission., content: { application/json: { schema: { $ref: '#/components/schemas/AssessmentResult' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [Student LMS]
+      operationId: submitAssessment
+      summary: Submit one immutable objective assessment attempt
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssessmentSubmissionRequest'
+      responses:
+        '201':
+          description: Assessment scored.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssessmentResult'
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/lms/assessments/{assessmentId}/attempts:
+    parameters:
+      - $ref: '#/components/parameters/AssessmentId'
+    get:
+      tags: [Student LMS]
+      operationId: listOwnAssessmentAttempts
+      summary: List all immutable attempts and the current grade-bearing submission
+      responses:
+        '200': { description: Assessment attempts., content: { application/json: { schema: { $ref: '#/components/schemas/AssessmentAttemptList' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/lms/assessments/{assessmentId}/attempt-requests:
+    parameters:
+      - $ref: '#/components/parameters/AssessmentId'
+    get:
+      tags: [Student LMS]
+      operationId: listOwnAssessmentAttemptRequests
+      summary: List the current student's requests and teacher decisions
+      responses:
+        '200': { description: Own attempt requests., content: { application/json: { schema: { $ref: '#/components/schemas/AttemptRequestList' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [Student LMS]
+      operationId: createOwnAssessmentAttemptRequest
+      summary: Request a makeup, retake, or appeal attempt
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/AttemptRequestCreate' } } }
+      responses:
+        '201': { description: Attempt request created., content: { application/json: { schema: { $ref: '#/components/schemas/AttemptRequest' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/lms/courses/{courseId}/grades:
+    parameters:
+      - $ref: '#/components/parameters/CourseId'
+    get:
+      tags: [Student LMS]
+      operationId: getStudentGrades
+      summary: Return the current student's assessment results
+      responses:
+        '200':
+          description: Student grade list.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GradeList'
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Stateless JWT containing one role plus userId and authorization-version claims; logout discards the token client-side.
+  parameters:
+    CourseId:
+      name: courseId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    StudentId:
+      name: studentId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    JobId:
+      name: jobId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    SectionId:
+      name: sectionId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    LessonId:
+      name: lessonId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    AssessmentId:
+      name: assessmentId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: Key scoped to the authenticated user and answer endpoint.
+      schema:
+        type: string
+        minLength: 8
+        maxLength: 128
+        pattern: '^[A-Za-z0-9._:-]+$'
+    LastEventId:
+      name: Last-Event-ID
+      in: header
+      required: false
+      schema:
+        type: string
+        pattern: '^[0-9]+$'
+    BeforeVersion:
+      name: beforeVersion
+      in: query
+      required: false
+      description: Exclusive upper snapshot version bound.
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    AnalyticsPeriod:
+      name: period
+      in: query
+      required: false
+      schema:
+        type: string
+        enum: [7D, 30D, TERM]
+        default: 30D
+  responses:
+    BadRequest:
+      description: Malformed request.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+    Unauthorized:
+      description: Missing or invalid authentication.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+    Forbidden:
+      description: Authenticated principal lacks the required role or scope.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+    NotFound:
+      description: Resource not found within the authorized scope.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+    Conflict:
+      description: Idempotency conflict, stale snapshot, or immutable-version conflict.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+    UnprocessableEntity:
+      description: Request is syntactically valid but violates a domain invariant.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+    TooManyRequests:
+      description: Authentication rate limit exceeded.
+      headers:
+        Retry-After:
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+  schemas:
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [username, password]
+      properties:
+        username:
+          type: string
+          minLength: 1
+          maxLength: 128
+        password:
+          type: string
+          minLength: 8
+          maxLength: 256
+          writeOnly: true
+    AuthSession:
+      type: object
+      additionalProperties: false
+      required: [accessToken, tokenType, expiresAt, user]
+      properties:
+        accessToken:
+          type: string
+          minLength: 1
+        tokenType:
+          type: string
+          const: Bearer
+        expiresAt:
+          type: string
+          format: date-time
+        user:
+          $ref: '#/components/schemas/AuthenticatedUser'
+    AuthenticatedUser:
+      type: object
+      additionalProperties: false
+      required: [userId, username, displayName, role, activeRole, availableRoles, mustChangePassword, accessibleCourseIds]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        username:
+          type: string
+          minLength: 1
+        displayName:
+          type: string
+          minLength: 1
+        role:
+          $ref: '#/components/schemas/UserRole'
+        activeRole:
+          $ref: '#/components/schemas/UserRole'
+        availableRoles:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: { $ref: '#/components/schemas/UserRole' }
+        mustChangePassword:
+          type: boolean
+        accessibleCourseIds:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+    UserRole:
+      type: string
+      enum: [ADMIN, TEACHER, STUDENT, COUNSELOR]
+    PasswordChangeRequest:
+      type: object
+      additionalProperties: false
+      required: [currentPassword, newPassword]
+      properties:
+        currentPassword: { type: string, minLength: 1 }
+        newPassword: { type: string, minLength: 12 }
+    UserProfile:
+      type: object
+      additionalProperties: false
+      required: [userId, username, displayName, roles, organizations]
+      properties:
+        userId: { type: string, format: uuid }
+        username: { type: string }
+        displayName: { type: string }
+        officialId: { type: [string, 'null'] }
+        roles: { type: array, uniqueItems: true, items: { $ref: '#/components/schemas/UserRole' } }
+        organizations:
+          type: array
+          items:
+            type: object
+            required: [organizationId, code, displayName, unitType]
+            properties:
+              organizationId: { type: string, format: uuid }
+              code: { type: string }
+              displayName: { type: string }
+              unitType: { type: string, enum: [COLLEGE, DEPARTMENT, MAJOR, CLASS] }
+        email: { type: [string, 'null'], format: email }
+        phone: { type: [string, 'null'] }
+        avatarKey: { type: [string, 'null'], enum: [avatar-1, avatar-2, avatar-3, avatar-4, avatar-5, avatar-6, avatar-7, avatar-8, null] }
+        themeColor: { type: [string, 'null'], enum: [teal, blue, green, amber, red, gray, violet, rose, null] }
+    UserProfileUpdate:
+      type: object
+      additionalProperties: false
+      properties:
+        email: { type: [string, 'null'], format: email }
+        phone: { type: [string, 'null'], maxLength: 40 }
+        avatarKey: { type: [string, 'null'], enum: [avatar-1, avatar-2, avatar-3, avatar-4, avatar-5, avatar-6, avatar-7, avatar-8, null] }
+        themeColor: { type: [string, 'null'], enum: [teal, blue, green, amber, red, gray, violet, rose, null] }
+    NotificationPage:
+      type: object
+      required: [items, page, size, total]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required: [notificationId, type, title, body, createdAt, read]
+            properties:
+              notificationId: { type: string, format: uuid }
+              type: { type: string }
+              title: { type: string }
+              body: { type: string }
+              deepLink: { type: [string, 'null'] }
+              createdAt: { type: string, format: date-time }
+              expiresAt: { type: [string, 'null'], format: date-time }
+              read: { type: boolean }
+        page: { type: integer, minimum: 0 }
+        size: { type: integer, minimum: 1 }
+        total: { type: integer, format: int64, minimum: 0 }
+    AssistantConversation:
+      type: object
+      additionalProperties: false
+      required: [conversationId, title, activeRole, createdAt, updatedAt]
+      properties:
+        conversationId: { type: string, format: uuid }
+        title: { type: string }
+        activeRole: { $ref: '#/components/schemas/UserRole' }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    AssistantConversationList:
+      type: object
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/AssistantConversation' } }
+    AssistantSource:
+      type: object
+      required: [label, queriedAt, deepLink]
+      properties:
+        label: { type: string }
+        queriedAt: { type: string, format: date-time }
+        deepLink: { type: string }
+    AssistantMessage:
+      type: object
+      required: [messageId, role, status, sources, deepLinks, retryable, createdAt]
+      properties:
+        messageId: { type: string, format: uuid }
+        role: { type: string, enum: [USER, ASSISTANT] }
+        status: { type: string, enum: [COMPLETED, PROCESSING, FAILED] }
+        content: { type: [string, 'null'] }
+        sources: { type: array, items: { $ref: '#/components/schemas/AssistantSource' } }
+        deepLinks: { type: array, items: { type: string } }
+        errorCode: { type: [string, 'null'] }
+        retryable: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        completedAt: { type: [string, 'null'], format: date-time }
+    AssistantMessageList:
+      type: object
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/AssistantMessage' } }
+    AssistantSendRequest:
+      type: object
+      additionalProperties: false
+      required: [content]
+      properties:
+        content: { type: string, minLength: 1, maxLength: 4000 }
+        clientMessageId: { type: string, format: uuid }
+        routeContext:
+          type: object
+          additionalProperties: { type: string, maxLength: 500 }
+    AssistantMessageReceipt:
+      type: object
+      required: [userMessageId, assistantMessageId, status, streamUrl]
+      properties:
+        userMessageId: { type: string, format: uuid }
+        assistantMessageId: { type: string, format: uuid }
+        status: { type: string }
+        streamUrl: { type: string }
+    AssistantEvent:
+      type: object
+      required: [sequence, messageId, type, occurredAt, data]
+      properties:
+        sequence: { type: integer, format: int64, minimum: 1 }
+        messageId: { type: string, format: uuid }
+        type:
+          type: string
+          enum: [message.started, tool.started, tool.completed, message.delta, message.completed, message.failed]
+        occurredAt: { type: string, format: date-time }
+        data: { type: object, additionalProperties: true }
+    CourseList:
+      type: object
+      additionalProperties: false
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CourseSummary'
+        total:
+          type: integer
+          minimum: 0
+    CourseSummary:
+      type: object
+      additionalProperties: false
+      required: [courseId, code, name, credits, role]
+      properties:
+        courseId:
+          type: string
+          format: uuid
+        code:
+          type: string
+          minLength: 1
+        name:
+          type: string
+          minLength: 1
+        termLabel:
+          type: [string, 'null']
+          maxLength: 80
+        college: { type: [string, 'null'] }
+        department: { type: [string, 'null'] }
+        credits: { type: number, format: double, minimum: 0.5, maximum: 20 }
+        instructorName: { type: [string, 'null'] }
+        role:
+          $ref: '#/components/schemas/UserRole'
+    DataVersionRef:
+      type: object
+      additionalProperties: false
+      required: [sourceId, version, manifestSha256]
+      properties:
+        sourceId:
+          type: string
+          enum: [ASSISTMENTS_2009_2010_SKILL_BUILDER_CORRECTED, OULAD, EDUTWIN_DEMO]
+        version:
+          type: string
+          minLength: 1
+        manifestSha256:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+    ModelVersionRef:
+      type: object
+      additionalProperties: false
+      required: [purpose, family, modelName, modelVersion, artifactSha256, calibratorVersion]
+      properties:
+        purpose:
+          type: string
+          enum: [MASTERY, NEXT_CORRECT, RISK, EXPLANATION, DIAGNOSIS, PLAN_RULES]
+        family:
+          type: string
+          enum: [IRT, BKT, DKT, AKT, LOGISTIC_REGRESSION, LIGHTGBM, CATBOOST, SHAP, DEEPSEEK, OPENAI_COMPATIBLE, RULE, TEMPLATE]
+        modelName:
+          type: string
+          minLength: 1
+        modelVersion:
+          type: string
+          minLength: 1
+        artifactSha256:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+        calibratorVersion:
+          type: [string, 'null']
+          minLength: 1
+    TraceRef:
+      type: object
+      additionalProperties: false
+      required:
+        - correlationId
+        - answerEventId
+        - analysisJobId
+        - snapshotId
+        - dataVersions
+        - requestedModelVersions
+        - effectiveModelVersions
+      properties:
+        correlationId:
+          type: string
+          format: uuid
+        answerEventId:
+          type: string
+          format: uuid
+        analysisJobId:
+          type: string
+          format: uuid
+        snapshotId:
+          type: string
+          format: uuid
+          description: Preallocated for QUEUED jobs and persisted unchanged on completion.
+        dataVersions:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/DataVersionRef'
+        requestedModelVersions:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/ModelVersionRef'
+        effectiveModelVersions:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/ModelVersionRef'
+    RiskPrediction:
+      type: object
+      additionalProperties: false
+      required:
+        - probability
+        - riskBand
+        - mediumThreshold
+        - highThreshold
+        - predictedAt
+      properties:
+        trace:
+          $ref: '#/components/schemas/TraceRef'
+          x-edutwin-visibility: internal
+        probability:
+          type: number
+          minimum: 0
+          maximum: 1
+        calibrated:
+          type: boolean
+          x-edutwin-visibility: internal
+        riskBand:
+          $ref: '#/components/schemas/RiskBand'
+        mediumThreshold:
+          type: number
+          minimum: 0
+          maximum: 1
+        highThreshold:
+          type: number
+          minimum: 0
+          maximum: 1
+        baseValue:
+          type: number
+          description: Selected risk model base value in log-odds space.
+          x-edutwin-visibility: internal
+        featureContractVersion:
+          type: string
+          minLength: 1
+          x-edutwin-visibility: internal
+        predictedAt:
+          type: string
+          format: date-time
+        degraded:
+          type: boolean
+          x-edutwin-visibility: internal
+    RiskBand:
+      type: string
+      enum: [LOW, MEDIUM, HIGH]
+    SkillMastery:
+      type: object
+      additionalProperties: false
+      required: [skillId, skillName, probability]
+      properties:
+        skillId:
+          type: string
+          format: uuid
+        skillName:
+          type: string
+          minLength: 1
+        probability:
+          type: number
+          minimum: 0
+          maximum: 1
+        estimator:
+          type: string
+          enum: [BKT, RULE_FALLBACK]
+          x-edutwin-visibility: internal
+    TwinState:
+      type: object
+      additionalProperties: false
+      required:
+        - studentId
+        - courseId
+        - snapshotVersion
+        - capturedAt
+        - mastery
+        - engagementScore
+        - stabilityScore
+        - nextCorrectProbability
+        - risk
+        - planCompletionRate
+      properties:
+        trace:
+          $ref: '#/components/schemas/TraceRef'
+          x-edutwin-visibility: internal
+        studentId:
+          type: string
+          format: uuid
+        courseId:
+          type: string
+          format: uuid
+        snapshotVersion:
+          type: integer
+          format: int64
+          minimum: 1
+        capturedAt:
+          type: string
+          format: date-time
+        mastery:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/SkillMastery'
+        engagementScore:
+          type: number
+          minimum: 0
+          maximum: 1
+        stabilityScore:
+          type: number
+          minimum: 0
+          maximum: 1
+        nextCorrectProbability:
+          type: number
+          minimum: 0
+          maximum: 1
+        risk:
+          $ref: '#/components/schemas/RiskPrediction'
+        planCompletionRate:
+          type: number
+          minimum: 0
+          maximum: 1
+        degraded:
+          type: boolean
+          x-edutwin-visibility: internal
+        degradationReasons:
+          type: array
+          uniqueItems: true
+          x-edutwin-visibility: internal
+          items:
+            type: string
+            enum: [KNOWLEDGE_MODEL_UNAVAILABLE, RISK_MODEL_UNAVAILABLE, MODEL_TIMEOUT, MODEL_CONTRACT_ERROR]
+    TwinHistory:
+      type: object
+      additionalProperties: false
+      required: [items, total, nextBeforeVersion]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/TwinState'
+        total:
+          type: integer
+          minimum: 0
+        nextBeforeVersion:
+          type: [integer, 'null']
+          format: int64
+          minimum: 1
+    WeakSkill:
+      type: object
+      additionalProperties: false
+      required: [skillId, skillName, averageMastery, affectedStudentCount]
+      properties:
+        skillId:
+          type: string
+          format: uuid
+        skillName:
+          type: string
+          minLength: 1
+        averageMastery:
+          type: number
+          minimum: 0
+          maximum: 1
+        affectedStudentCount:
+          type: integer
+          minimum: 0
+    ActivityPoint:
+      type: object
+      additionalProperties: false
+      required: [date, answerCount, activeStudentCount, correctRate]
+      properties:
+        date:
+          type: string
+          format: date
+        answerCount:
+          type: integer
+          minimum: 0
+        activeStudentCount:
+          type: integer
+          minimum: 0
+        correctRate:
+          type: number
+          minimum: 0
+          maximum: 1
+    BehaviorDistributionItem:
+      type: object
+      additionalProperties: false
+      required: [behaviorType, eventCount, studentCount, share]
+      properties:
+        behaviorType: { type: string }
+        eventCount: { type: integer, minimum: 0 }
+        studentCount: { type: integer, minimum: 0 }
+        share: { type: number, minimum: 0, maximum: 1 }
+    ActivityHeatmapPoint:
+      type: object
+      additionalProperties: false
+      required: [weekday, hour, eventCount]
+      properties:
+        weekday: { type: integer, minimum: 1, maximum: 7 }
+        hour: { type: integer, minimum: 0, maximum: 23 }
+        eventCount: { type: integer, minimum: 0 }
+    StudentScatterPoint:
+      type: object
+      additionalProperties: false
+      required: [studentId, displayName, averageMastery, riskProbability, engagementScore, behaviorProfile]
+      properties:
+        studentId: { type: string, format: uuid }
+        displayName: { type: string }
+        averageMastery: { type: number, minimum: 0, maximum: 1 }
+        riskProbability: { type: number, minimum: 0, maximum: 1 }
+        engagementScore: { type: number, minimum: 0, maximum: 1 }
+        behaviorProfile: { type: string }
+    StudentRiskSummary:
+      type: object
+      additionalProperties: false
+      required: [studentId, displayName, riskProbability, riskBand, lastActivityAt, averageMastery, engagementScore, answerCount, behaviorProfile]
+      properties:
+        studentId:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+          minLength: 1
+        snapshotId:
+          type: string
+          format: uuid
+          x-edutwin-visibility: internal
+        riskProbability:
+          type: number
+          minimum: 0
+          maximum: 1
+        riskBand:
+          $ref: '#/components/schemas/RiskBand'
+        lastActivityAt:
+          type: string
+          format: date-time
+        averageMastery: { type: number, minimum: 0, maximum: 1 }
+        engagementScore: { type: number, minimum: 0, maximum: 1 }
+        answerCount: { type: integer, minimum: 0 }
+        behaviorProfile: { type: string }
+    TeacherDashboard:
+      type: object
+      additionalProperties: false
+      required:
+        - courseId
+        - generatedAt
+        - studentCount
+        - highRiskCount
+        - mediumRiskCount
+        - lowRiskCount
+        - averageRiskProbability
+        - weakSkills
+        - activityTrend
+        - students
+        - period
+        - activeStudentCount
+        - answerCount
+        - averageCorrectRate
+        - behaviorDistribution
+        - activityHeatmap
+        - studentScatter
+      properties:
+        trace:
+          $ref: '#/components/schemas/TraceRef'
+          x-edutwin-visibility: internal
+        courseId:
+          type: string
+          format: uuid
+        generatedAt:
+          type: string
+          format: date-time
+        studentCount:
+          type: integer
+          minimum: 0
+        highRiskCount:
+          type: integer
+          minimum: 0
+        mediumRiskCount:
+          type: integer
+          minimum: 0
+        lowRiskCount:
+          type: integer
+          minimum: 0
+        averageRiskProbability:
+          type: number
+          minimum: 0
+          maximum: 1
+        period: { type: string, enum: [7D, 30D, TERM] }
+        activeStudentCount: { type: integer, minimum: 0 }
+        answerCount: { type: integer, minimum: 0 }
+        averageCorrectRate: { type: number, minimum: 0, maximum: 1 }
+        weakSkills:
+          type: array
+          items:
+            $ref: '#/components/schemas/WeakSkill'
+        activityTrend:
+          type: array
+          items:
+            $ref: '#/components/schemas/ActivityPoint'
+        students:
+          type: array
+          items:
+            $ref: '#/components/schemas/StudentRiskSummary'
+        behaviorDistribution:
+          type: array
+          items: { $ref: '#/components/schemas/BehaviorDistributionItem' }
+        activityHeatmap:
+          type: array
+          items: { $ref: '#/components/schemas/ActivityHeatmapPoint' }
+        studentScatter:
+          type: array
+          items: { $ref: '#/components/schemas/StudentScatterPoint' }
+    StudentAnalytics:
+      type: object
+      additionalProperties: false
+      required: [courseId, studentId, period, generatedAt, answerCount, correctRate, activeDays, totalDurationMinutes, currentMastery, currentRisk, currentEngagement, snapshotTrend, activityTrend, behaviorDistribution, activityHeatmap]
+      properties:
+        courseId: { type: string, format: uuid }
+        studentId: { type: string, format: uuid }
+        period: { type: string, enum: [7D, 30D, TERM] }
+        generatedAt: { type: string, format: date-time }
+        answerCount: { type: integer, minimum: 0 }
+        correctRate: { type: number, minimum: 0, maximum: 1 }
+        activeDays: { type: integer, minimum: 0 }
+        totalDurationMinutes: { type: integer, minimum: 0 }
+        currentMastery: { type: number, minimum: 0, maximum: 1 }
+        currentRisk: { type: number, minimum: 0, maximum: 1 }
+        currentEngagement: { type: number, minimum: 0, maximum: 1 }
+        snapshotTrend: { type: array, items: { $ref: '#/components/schemas/TwinState' } }
+        activityTrend: { type: array, items: { $ref: '#/components/schemas/ActivityPoint' } }
+        behaviorDistribution: { type: array, items: { $ref: '#/components/schemas/BehaviorDistributionItem' } }
+        activityHeatmap: { type: array, items: { $ref: '#/components/schemas/ActivityHeatmapPoint' } }
+    PracticeChoice:
+      type: object
+      additionalProperties: false
+      required: [choiceId, label]
+      properties:
+        choiceId:
+          type: string
+          minLength: 1
+        label:
+          type: string
+          minLength: 1
+    PracticeQuestion:
+      type: object
+      additionalProperties: false
+      required: [questionId, courseId, prompt, questionType, choices, skillIds]
+      properties:
+        trace:
+          $ref: '#/components/schemas/TraceRef'
+          x-edutwin-visibility: internal
+        questionId:
+          type: string
+          format: uuid
+        courseId:
+          type: string
+          format: uuid
+        prompt:
+          type: string
+          minLength: 1
+        questionType:
+          type: string
+          enum: [SINGLE_CHOICE]
+        choices:
+          type: array
+          minItems: 2
+          items:
+            $ref: '#/components/schemas/PracticeChoice'
+        skillIds:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+    AnswerSubmission:
+      type: object
+      additionalProperties: false
+      required: [questionId, selectedChoiceId, occurredAt]
+      properties:
+        questionId:
+          type: string
+          format: uuid
+        selectedChoiceId:
+          type: string
+          minLength: 1
+        occurredAt:
+          type: string
+          format: date-time
+    AnswerHistorySkill:
+      type: object
+      additionalProperties: false
+      required: [skillId, name]
+      properties:
+        skillId:
+          type: string
+          format: uuid
+        name:
+          type: string
+          minLength: 1
+    AnswerHistoryItem:
+      type: object
+      additionalProperties: false
+      required:
+        - answerEventId
+        - questionId
+        - prompt
+        - selectedChoice
+        - correctChoice
+        - correct
+        - skills
+        - attemptNumber
+        - eventSequence
+        - responseTimeMs
+        - occurredAt
+        - sourceType
+      properties:
+        answerEventId:
+          type: string
+          format: uuid
+        questionId:
+          type: string
+          format: uuid
+        prompt:
+          type: string
+          minLength: 1
+        selectedChoice:
+          $ref: '#/components/schemas/PracticeChoice'
+        correctChoice:
+          $ref: '#/components/schemas/PracticeChoice'
+        correct:
+          type: boolean
+        skills:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/AnswerHistorySkill'
+        attemptNumber:
+          type: integer
+          minimum: 1
+          maximum: 65535
+        eventSequence:
+          type: integer
+          format: int64
+          minimum: 1
+        responseTimeMs:
+          type: integer
+          format: int64
+          minimum: 0
+        occurredAt:
+          type: string
+          format: date-time
+        sourceType:
+          type: string
+          enum: [ONLINE, IMPORTED]
+    AnswerHistoryPage:
+      type: object
+      additionalProperties: false
+      required: [items, total, page, size]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AnswerHistoryItem'
+        total:
+          type: integer
+          minimum: 0
+        page:
+          type: integer
+          minimum: 0
+        size:
+          type: integer
+          minimum: 1
+    AnalysisJobStatus:
+      type: string
+      enum: [QUEUED, PROCESSING, COMPLETED, FAILED]
+    AnalysisStage:
+      type: string
+      enum: [QUEUED, MODEL_INFERENCE, SNAPSHOT_PERSISTENCE, PLAN_GENERATION, EVENT_PUBLICATION, COMPLETED, FAILED]
+    AnalysisResultLinks:
+      type: object
+      additionalProperties: false
+      required: [twinUrl, learningPlanUrl, diagnosisUrl]
+      properties:
+        twinUrl:
+          type: [string, 'null']
+        learningPlanUrl:
+          type: [string, 'null']
+        diagnosisUrl:
+          type: [string, 'null']
+    AnalysisFailure:
+      type: object
+      additionalProperties: false
+      required: [errorCode, message, retryable, failedAt]
+      properties:
+        errorCode:
+          type: string
+          minLength: 1
+        message:
+          type: string
+          minLength: 1
+        retryable:
+          type: boolean
+        failedAt:
+          type: string
+          format: date-time
+    AnalysisJob:
+      type: object
+      additionalProperties: false
+      required:
+        - jobId
+        - studentId
+        - courseId
+        - status
+        - stage
+        - lastEventSequence
+        - submittedAt
+        - startedAt
+        - completedAt
+        - failure
+        - result
+      properties:
+        trace:
+          $ref: '#/components/schemas/TraceRef'
+          x-edutwin-visibility: internal
+        jobId:
+          type: string
+          format: uuid
+        studentId:
+          type: string
+          format: uuid
+        courseId:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/AnalysisJobStatus'
+        stage:
+          $ref: '#/components/schemas/AnalysisStage'
+        lastEventSequence:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Highest persisted analysis_job_event sequence visible to SSE recovery.
+        submittedAt:
+          type: string
+          format: date-time
+        startedAt:
+          type: [string, 'null']
+          format: date-time
+        completedAt:
+          type: [string, 'null']
+          format: date-time
+        degraded:
+          type: boolean
+          x-edutwin-visibility: internal
+        degradationReasons:
+          type: array
+          uniqueItems: true
+          x-edutwin-visibility: internal
+          items:
+            type: string
+            enum:
+              - KNOWLEDGE_MODEL_UNAVAILABLE
+              - RISK_MODEL_UNAVAILABLE
+              - MODEL_TIMEOUT
+              - MODEL_CONTRACT_ERROR
+              - DEEPSEEK_UNAVAILABLE
+              - DEEPSEEK_TIMEOUT
+              - LLM_UNAVAILABLE
+              - LLM_TIMEOUT
+              - REDIS_RETRY
+        failure:
+          oneOf:
+            - $ref: '#/components/schemas/AnalysisFailure'
+            - type: 'null'
+        result:
+          $ref: '#/components/schemas/AnalysisResultLinks'
+    SseJobEvent:
+      type: object
+      additionalProperties: false
+      required: [sequence, eventType, occurredAt, job]
+      properties:
+        sequence:
+          type: integer
+          format: int64
+          minimum: 1
+        eventType:
+          type: string
+          enum:
+            - job.queued
+            - job.processing
+            - predictions.computed
+            - twin.snapshot-created
+            - learning-plan.created
+            - job.completed
+            - job.failed
+            - heartbeat
+        occurredAt:
+          type: string
+          format: date-time
+        job:
+          $ref: '#/components/schemas/AnalysisJob'
+    PlanGenerationRequest:
+      type: object
+      additionalProperties: false
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          enum: [MANUAL_REFRESH, PRACTICE_COMPLETED, TEACHER_INTERVENTION]
+    LearningPlanTask:
+      type: object
+      additionalProperties: false
+      required:
+        - taskId
+        - sequence
+        - taskType
+        - questionId
+        - skillId
+        - targetMastery
+        - reasonCode
+        - dueAt
+        - status
+      properties:
+        taskId:
+          type: string
+          format: uuid
+        sequence:
+          type: integer
+          minimum: 1
+        taskType:
+          type: string
+          enum: [PRACTICE, REVIEW]
+        questionId:
+          type: string
+          format: uuid
+        skillId:
+          type: string
+          format: uuid
+        targetMastery:
+          type: number
+          minimum: 0
+          maximum: 1
+        reasonCode:
+          type: string
+          enum: [LOW_MASTERY, HIGH_RISK_CONTRIBUTION, STABILITY_RECOVERY, SPACED_REVIEW]
+        dueAt:
+          type: string
+          format: date-time
+        status:
+          type: string
+          description: State advanced automatically by accepted answer events.
+          enum: [PENDING, IN_PROGRESS, COMPLETED, SKIPPED, EXPIRED]
+    LearningPlan:
+      type: object
+      additionalProperties: false
+      required:
+        - planId
+        - studentId
+        - courseId
+        - version
+        - generatedAt
+        - validUntil
+        - status
+        - completionRate
+        - tasks
+      properties:
+        trace:
+          $ref: '#/components/schemas/TraceRef'
+          x-edutwin-visibility: internal
+        planId:
+          type: string
+          format: uuid
+        studentId:
+          type: string
+          format: uuid
+        courseId:
+          type: string
+          format: uuid
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+        basedOnSnapshotId:
+          type: string
+          format: uuid
+          x-edutwin-visibility: internal
+        ruleEngineVersion:
+          type: string
+          minLength: 1
+          x-edutwin-visibility: internal
+        generatedAt:
+          type: string
+          format: date-time
+        validUntil:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [ACTIVE, SUPERSEDED, COMPLETED, EXPIRED]
+        completionRate:
+          type: number
+          minimum: 0
+          maximum: 1
+        tasks:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/LearningPlanTask'
+    PlanTaskProjection:
+      type: object
+      additionalProperties: false
+      required: [planTaskId, planId, questionId, questionTitle, skillId, skillName, taskType, reasonCode, targetCount, completedCount, status, dueAt, startedAt, completedAt, skippedAt, skipReason, practicePath]
+      properties:
+        planTaskId: { type: string, format: uuid }
+        planId: { type: string, format: uuid }
+        questionId: { type: string, format: uuid }
+        questionTitle: { type: string }
+        skillId: { type: string, format: uuid }
+        skillName: { type: string }
+        taskType: { type: string, enum: [PRACTICE, REVIEW] }
+        reasonCode: { type: string }
+        targetCount: { type: integer, minimum: 1 }
+        completedCount: { type: integer, minimum: 0 }
+        status: { type: string, enum: [PENDING, IN_PROGRESS, COMPLETED, SKIPPED, EXPIRED] }
+        dueAt: { type: [string, 'null'], format: date-time }
+        startedAt: { type: [string, 'null'], format: date-time }
+        completedAt: { type: [string, 'null'], format: date-time }
+        skippedAt: { type: [string, 'null'], format: date-time }
+        skipReason: { type: [string, 'null'] }
+        practicePath: { type: string }
+    PlanLifecycle:
+      type: object
+      additionalProperties: false
+      required: [planId, courseId, studentId, version, status, validUntil, expiredAt, tasks]
+      properties:
+        planId: { type: string, format: uuid }
+        courseId: { type: string, format: uuid }
+        studentId: { type: string, format: uuid }
+        version: { type: integer, format: int64, minimum: 1 }
+        status: { type: string, enum: [ACTIVE, COMPLETED, EXPIRED, SUPERSEDED] }
+        validUntil: { type: string, format: date-time }
+        expiredAt: { type: [string, 'null'], format: date-time }
+        tasks: { type: array, items: { $ref: '#/components/schemas/PlanTaskProjection' } }
+    StartPlanTaskRequest:
+      type: object
+      additionalProperties: false
+      required: [expectedPlanId]
+      properties:
+        expectedPlanId: { type: string, format: uuid }
+    SkipPlanTaskRequest:
+      type: object
+      additionalProperties: false
+      required: [reason, expectedPlanId]
+      properties:
+        reason: { type: string, minLength: 1, maxLength: 300 }
+        expectedPlanId: { type: string, format: uuid }
+    PlanPracticeTask:
+      type: object
+      additionalProperties: false
+      required: [planTaskId, planId, courseId, questionId, questionTitle, prompt, answerType, optionsJson, skillId, skillName, targetCount, completedCount]
+      properties:
+        planTaskId: { type: string, format: uuid }
+        planId: { type: string, format: uuid }
+        courseId: { type: string, format: uuid }
+        questionId: { type: string, format: uuid }
+        questionTitle: { type: string }
+        prompt: { type: string }
+        answerType: { type: string }
+        optionsJson: { type: [string, 'null'] }
+        skillId: { type: string, format: uuid }
+        skillName: { type: string }
+        targetCount: { type: integer, minimum: 1 }
+        completedCount: { type: integer, minimum: 0 }
+    DiagnosisRequest:
+      type: object
+      additionalProperties: false
+      properties: {}
+    DiagnosisEvidence:
+      type: object
+      additionalProperties: false
+      required:
+        - rank
+        - featureName
+        - rawValue
+        - direction
+        - contribution
+        - outputUnit
+      properties:
+        trace:
+          $ref: '#/components/schemas/TraceRef'
+          x-edutwin-visibility: internal
+        rank:
+          type: integer
+          minimum: 1
+          maximum: 5
+        featureName:
+          type: string
+          minLength: 1
+        rawValue:
+          type: number
+          description: Numeric value supplied to the frozen risk feature contract.
+        direction:
+          type: string
+          enum: [INCREASES_RISK, DECREASES_RISK]
+        contribution:
+          type: number
+          description: Signed SHAP contribution in the declared output unit.
+        baseValue:
+          type: number
+          x-edutwin-visibility: internal
+        outputUnit:
+          type: string
+          enum: [LOG_ODDS]
+        riskModelVersion:
+          type: string
+          minLength: 1
+          x-edutwin-visibility: internal
+    Diagnosis:
+      type: object
+      additionalProperties: false
+      required:
+        - diagnosisId
+        - schemaVersion
+        - generatedAt
+        - summary
+        - riskBand
+        - strengths
+        - concerns
+        - recommendedActions
+        - evidence
+        - learningPlan
+      properties:
+        trace:
+          $ref: '#/components/schemas/TraceRef'
+          x-edutwin-visibility: internal
+        diagnosisId:
+          type: string
+          format: uuid
+        schemaVersion:
+          type: string
+          const: '1.0'
+        generatedAt:
+          type: string
+          format: date-time
+        generationMode:
+          type: string
+          enum: [DEEPSEEK_TOOL_CALL, LLM_TOOL_CALL, TEMPLATE_FALLBACK]
+          x-edutwin-visibility: internal
+        providerModel:
+          type: string
+          minLength: 1
+          maxLength: 200
+          x-edutwin-visibility: internal
+        toolCallVerified:
+          type: boolean
+          x-edutwin-visibility: internal
+        summary:
+          type: string
+          minLength: 1
+        riskBand:
+          $ref: '#/components/schemas/RiskBand'
+        strengths:
+          type: array
+          items:
+            type: string
+            minLength: 1
+        concerns:
+          type: array
+          items:
+            type: string
+            minLength: 1
+        recommendedActions:
+          type: array
+          items:
+            type: string
+            minLength: 1
+        evidence:
+          type: array
+          minItems: 5
+          maxItems: 5
+          items:
+            $ref: '#/components/schemas/DiagnosisEvidence'
+        learningPlan:
+          $ref: '#/components/schemas/LearningPlan'
+    SourceProvenance:
+      type: object
+      additionalProperties: false
+      required:
+        - sourceId
+        - datasetVersion
+        - sourceSha256
+        - manifestSha256
+        - licenseName
+        - licenseUrl
+        - sourceUrl
+        - rowCount
+        - processingRunId
+        - processingConfigSha256
+        - splitSeed
+      properties:
+        sourceId:
+          type: string
+          enum: [ASSISTMENTS_2009_2010_SKILL_BUILDER_CORRECTED, OULAD]
+        datasetVersion:
+          type: string
+          minLength: 1
+        sourceSha256:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+        manifestSha256:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+        licenseName:
+          type: string
+          minLength: 1
+        licenseUrl:
+          type: string
+          format: uri
+        sourceUrl:
+          type: string
+          format: uri
+        rowCount:
+          type: integer
+          format: int64
+          minimum: 0
+        processingRunId:
+          type: string
+          format: uuid
+        processingConfigSha256:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+        splitSeed:
+          type: integer
+          const: 42
+    DataProvenance:
+      type: object
+      additionalProperties: false
+      required: [synthetic, matchingVersion, matchingSeed, generatedAt, sources]
+      properties:
+        synthetic:
+          type: boolean
+          default: true
+          description: Demo provenance responses always set this field to true.
+        matchingVersion:
+          type: string
+          minLength: 1
+        matchingSeed:
+          type: integer
+          const: 42
+        generatedAt:
+          type: string
+          format: date-time
+        sources:
+          type: array
+          minItems: 2
+          maxItems: 2
+          items:
+            $ref: '#/components/schemas/SourceProvenance'
+    MetricValue:
+      type: object
+      additionalProperties: false
+      required: [name, split, value]
+      properties:
+        name:
+          type: string
+          enum: [AUC, LOG_LOSS, ECE_15, CPU_P95_MS, PR_AUC, BRIER_SCORE]
+        split:
+          type: string
+          enum: [VALIDATION, TEST]
+        value:
+          type: number
+    ModelTransparency:
+      type: object
+      additionalProperties: false
+      required:
+        - model
+        - manifestSha256
+        - configSha256
+        - dependencyLockSha256
+        - selected
+        - metrics
+      properties:
+        model:
+          $ref: '#/components/schemas/ModelVersionRef'
+        manifestSha256:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+        configSha256:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+        dependencyLockSha256:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+        selected:
+          type: boolean
+        metrics:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/MetricValue'
+    TransparencyResponse:
+      type: object
+      additionalProperties: false
+      required: [provenance, models, generatedAt]
+      properties:
+        provenance:
+          $ref: '#/components/schemas/DataProvenance'
+        models:
+          type: array
+          minItems: 7
+          items:
+            $ref: '#/components/schemas/ModelTransparency'
+        generatedAt:
+          type: string
+          format: date-time
+    AdminOverview:
+      type: object
+      required: [enabledUsers, teachers, students, counselors, enabledDatasets, modelDeployments, generatedAt]
+      properties:
+        enabledUsers: { type: integer, minimum: 0 }
+        teachers: { type: integer, minimum: 0 }
+        students: { type: integer, minimum: 0 }
+        counselors: { type: integer, minimum: 0 }
+        enabledDatasets: { type: integer, minimum: 0 }
+        modelDeployments: { type: integer, minimum: 0 }
+        generatedAt: { type: string, format: date-time }
+    AdminAiConfiguration:
+      type: object
+      additionalProperties: false
+      required: [source, revision, enabled, apiBaseUrl, model, apiKeyConfigured, writeAvailable, lastTestStatus, updatedAt]
+      properties:
+        source: { type: string, enum: [ENVIRONMENT, DATABASE] }
+        revision: { type: integer, format: int64, minimum: 0 }
+        enabled: { type: boolean }
+        apiBaseUrl: { type: string, format: uri, maxLength: 500 }
+        model: { type: string, minLength: 1, maxLength: 200 }
+        apiKeyConfigured: { type: boolean }
+        writeAvailable: { type: boolean }
+        lastTestStatus: { type: string, enum: [PASSED, NOT_TESTED, SKIPPED_DISABLED] }
+        lastTestedAt: { type: [string, 'null'], format: date-time }
+        lastTestLatencyMs: { type: [integer, 'null'], format: int64, minimum: 0 }
+        updatedAt: { type: string, format: date-time }
+        updatedBy: { type: [string, 'null'] }
+    AdminAiConfigurationUpdateRequest:
+      type: object
+      additionalProperties: false
+      required: [expectedRevision, enabled, apiBaseUrl, model]
+      properties:
+        expectedRevision: { type: integer, format: int64, minimum: 0 }
+        enabled: { type: boolean }
+        apiBaseUrl: { type: string, format: uri, minLength: 1, maxLength: 500 }
+        model: { type: string, minLength: 1, maxLength: 200 }
+        apiKey: { type: string, minLength: 8, maxLength: 512, writeOnly: true }
+    AdminAiConfigurationRestoreRequest:
+      type: object
+      additionalProperties: false
+      required: [expectedRevision]
+      properties:
+        expectedRevision: { type: integer, format: int64, minimum: 0 }
+    AdminAiConfigurationActivationResult:
+      type: object
+      additionalProperties: false
+      required: [configuration, testStatus]
+      properties:
+        configuration: { $ref: '#/components/schemas/AdminAiConfiguration' }
+        testStatus: { type: string, enum: [PASSED, SKIPPED_DISABLED] }
+        testLatencyMs: { type: [integer, 'null'], format: int64, minimum: 0 }
+    AdminUser:
+      type: object
+      required: [userId, username, displayName, role, roles, enabled, mustChangePassword, originType, createdAt, updatedAt]
+      properties:
+        userId: { type: string, format: uuid }
+        username: { type: string }
+        displayName: { type: string }
+        role: { $ref: '#/components/schemas/UserRole' }
+        roles: { type: array, minItems: 1, uniqueItems: true, items: { $ref: '#/components/schemas/UserRole' } }
+        enabled: { type: boolean }
+        mustChangePassword: { type: boolean }
+        originType: { type: string, enum: [DEMO_SYNTHETIC, MANUAL, BULK_IMPORT] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    AdminUserList:
+      type: object
+      required: [items, total]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/AdminUser' } }
+        total: { type: integer, minimum: 0 }
+    AdminUserCreateRequest:
+      type: object
+      additionalProperties: false
+      required: [username, displayName, password]
+      anyOf:
+        - required: [role]
+        - required: [roles]
+      properties:
+        username: { type: string, minLength: 1, maxLength: 100 }
+        displayName: { type: string, minLength: 1, maxLength: 120 }
+        role: { $ref: '#/components/schemas/UserRole' }
+        roles: { type: array, minItems: 1, uniqueItems: true, items: { $ref: '#/components/schemas/UserRole' } }
+        password: { type: string, minLength: 12 }
+    AdminUserUpdateRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        displayName: { type: string, minLength: 1, maxLength: 120 }
+        role: { $ref: '#/components/schemas/UserRole' }
+        roles: { type: array, minItems: 1, uniqueItems: true, items: { $ref: '#/components/schemas/UserRole' } }
+        enabled: { type: boolean }
+    TemporaryPassword:
+      type: object
+      required: [temporaryPassword, mustChangePassword]
+      properties:
+        temporaryPassword: { type: string, minLength: 12 }
+        mustChangePassword: { type: boolean }
+    UserImportError:
+      type: object
+      required: [file, sheet, row, field, code, message]
+      properties:
+        file: { type: string }
+        sheet: { type: string }
+        row: { type: integer, minimum: 1 }
+        field: { type: string }
+        code: { type: string }
+        message: { type: string }
+    UserImportPreview:
+      type: object
+      required: [fileSha256, format, userRows, membershipRows, createCount, updateCount, errors, valid]
+      properties:
+        fileSha256: { type: string, pattern: '^[a-f0-9]{64}$' }
+        format: { type: string, enum: [XLSX, CSV] }
+        userRows: { type: integer, minimum: 0 }
+        membershipRows: { type: integer, minimum: 0 }
+        createCount: { type: integer, minimum: 0 }
+        updateCount: { type: integer, minimum: 0 }
+        errors: { type: array, items: { $ref: '#/components/schemas/UserImportError' } }
+        valid: { type: boolean }
+    TemporaryCredential:
+      type: object
+      required: [username, displayName, role, temporaryPassword]
+      properties:
+        username: { type: string }
+        displayName: { type: string }
+        role: { $ref: '#/components/schemas/UserRole' }
+        temporaryPassword: { type: string, writeOnly: true }
+    UserImportResult:
+      type: object
+      required: [fileSha256, createdCount, updatedCount, membershipCount, credentials]
+      properties:
+        fileSha256: { type: string, pattern: '^[a-f0-9]{64}$' }
+        createdCount: { type: integer, minimum: 0 }
+        updatedCount: { type: integer, minimum: 0 }
+        membershipCount: { type: integer, minimum: 0 }
+        credentials: { type: array, items: { $ref: '#/components/schemas/TemporaryCredential' } }
+    OrganizationUnit:
+      type: object
+      additionalProperties: false
+      required: [organizationId, code, displayName, unitType, parentId, enabled, children]
+      properties:
+        organizationId: { type: string, format: uuid }
+        code: { type: string }
+        displayName: { type: string }
+        unitType: { type: string, enum: [COLLEGE, DEPARTMENT, MAJOR, CLASS] }
+        parentId: { type: [string, 'null'], format: uuid }
+        enabled: { type: boolean }
+        children: { type: array, items: { $ref: '#/components/schemas/OrganizationUnit' } }
+    OrganizationList:
+      type: object
+      additionalProperties: false
+      required: [items, total]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/OrganizationUnit' } }
+        total: { type: integer, minimum: 0 }
+    OrganizationWriteRequest:
+      type: object
+      additionalProperties: false
+      required: [code, displayName, unitType]
+      properties:
+        code: { type: string, minLength: 1, maxLength: 80 }
+        displayName: { type: string, minLength: 1, maxLength: 160 }
+        unitType: { type: string, enum: [COLLEGE, DEPARTMENT, MAJOR, CLASS] }
+        parentId: { type: [string, 'null'], format: uuid }
+        enabled: { type: boolean }
+    OrganizationReferences:
+      type: object
+      additionalProperties: false
+      required: [users, courses]
+      properties:
+        users: { type: integer, minimum: 0 }
+        courses: { type: integer, minimum: 0 }
+    UserOrganizationReplaceRequest:
+      type: object
+      additionalProperties: false
+      required: [organizationId]
+      properties:
+        organizationId: { type: string, format: uuid }
+    AcademicTerm:
+      type: object
+      additionalProperties: false
+      required: [termId, code, displayName, startsOn, endsOn, enabled]
+      properties:
+        termId: { type: string, format: uuid }
+        code: { type: string }
+        displayName: { type: string }
+        startsOn: { type: string, format: date }
+        endsOn: { type: string, format: date }
+        enabled: { type: boolean }
+    AcademicTermWriteRequest:
+      type: object
+      additionalProperties: false
+      required: [code, displayName, startsOn, endsOn]
+      properties:
+        code: { type: string, minLength: 1, maxLength: 80 }
+        displayName: { type: string, minLength: 1, maxLength: 160 }
+        startsOn: { type: string, format: date }
+        endsOn: { type: string, format: date }
+        enabled: { type: boolean }
+    AcademicTermList:
+      type: object
+      additionalProperties: false
+      required: [items, total]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/AcademicTerm' } }
+        total: { type: integer, minimum: 0 }
+    CounselorScope:
+      type: object
+      additionalProperties: false
+      required: [scopeType, college, major, cohortYear]
+      properties:
+        scopeType: { type: string, enum: [COHORT, CLASS] }
+        college: { type: string, minLength: 1, maxLength: 160 }
+        major: { type: string, minLength: 1, maxLength: 160 }
+        cohortYear: { type: integer, minimum: 2000, maximum: 2200 }
+        className: { type: [string, 'null'], maxLength: 200 }
+    CounselorScopeList:
+      type: object
+      required: [items, total]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/CounselorScope' } }
+        total: { type: integer, minimum: 0 }
+    CounselorScopeReplaceRequest:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items: { type: array, maxItems: 100, items: { $ref: '#/components/schemas/CounselorScope' } }
+    StudentGroup:
+      allOf:
+        - $ref: '#/components/schemas/CounselorScope'
+        - type: object
+          required: [studentCount]
+          properties:
+            studentCount: { type: integer, minimum: 1 }
+    StudentGroupList:
+      type: object
+      required: [items, total]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/StudentGroup' } }
+        total: { type: integer, minimum: 0 }
+    CounselorStudentSummary:
+      type: object
+      required: [studentId, username, displayName, studentNumber, college, major, cohortYear, className, courseCount, totalCredits, averageScorePercentage, averageMastery, highRiskCourseCount, lastActivityAt]
+      properties:
+        studentId: { type: string, format: uuid }
+        username: { type: string }
+        displayName: { type: string }
+        studentNumber: { type: string }
+        college: { type: string }
+        major: { type: string }
+        cohortYear: { type: integer }
+        className: { type: string }
+        courseCount: { type: integer, minimum: 0 }
+        totalCredits: { type: number, minimum: 0 }
+        averageScorePercentage: { type: [number, 'null'], minimum: 0, maximum: 100 }
+        averageMastery: { type: [number, 'null'], minimum: 0, maximum: 1 }
+        highRiskCourseCount: { type: integer, minimum: 0 }
+        lastActivityAt: { type: [string, 'null'], format: date-time }
+    CounselorStudentPage:
+      type: object
+      required: [items, total, page, size]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/CounselorStudentSummary' } }
+        total: { type: integer, minimum: 0 }
+        page: { type: integer, minimum: 0 }
+        size: { type: integer, minimum: 1 }
+    CounselorCourseStatistics:
+      type: object
+      required: [courseId, code, title, credits, instructors, enrollmentStatus, completedLessons, totalLessons, submittedAssessments, publishedAssessments, scorePercentage, averageMastery, riskBand, riskProbability, lastActivityAt]
+      properties:
+        courseId: { type: string, format: uuid }
+        code: { type: string }
+        title: { type: string }
+        termLabel: { type: [string, 'null'] }
+        credits: { type: number, minimum: 0 }
+        instructors: { type: array, items: { type: string } }
+        enrollmentStatus: { type: string, enum: [ACTIVE, COMPLETED] }
+        completedLessons: { type: integer, minimum: 0 }
+        totalLessons: { type: integer, minimum: 0 }
+        submittedAssessments: { type: integer, minimum: 0 }
+        publishedAssessments: { type: integer, minimum: 0 }
+        scorePercentage: { type: [number, 'null'], minimum: 0, maximum: 100 }
+        averageMastery: { type: [number, 'null'], minimum: 0, maximum: 1 }
+        riskBand: { anyOf: [ { $ref: '#/components/schemas/RiskBand' }, { type: 'null' } ] }
+        riskProbability: { type: [number, 'null'], minimum: 0, maximum: 1 }
+        lastActivityAt: { type: [string, 'null'], format: date-time }
+    CounselorStudentOverview:
+      type: object
+      required: [student, courses]
+      properties:
+        student: { $ref: '#/components/schemas/CounselorStudentSummary' }
+        courses: { type: array, items: { $ref: '#/components/schemas/CounselorCourseStatistics' } }
+    CounselorClassComparison:
+      type: object
+      additionalProperties: false
+      required: [className, studentCount, activeCourseEnrollments, averageScorePercentage, averageMastery, averageRiskProbability, lowRiskCourseCount, mediumRiskCourseCount, highRiskCourseCount, planCompletionRate]
+      properties:
+        className: { type: string }
+        studentCount: { type: integer, minimum: 0 }
+        activeCourseEnrollments: { type: integer, minimum: 0 }
+        averageScorePercentage: { type: [number, 'null'], minimum: 0, maximum: 100 }
+        averageMastery: { type: [number, 'null'], minimum: 0, maximum: 1 }
+        averageRiskProbability: { type: [number, 'null'], minimum: 0, maximum: 1 }
+        lowRiskCourseCount: { type: integer, minimum: 0 }
+        mediumRiskCourseCount: { type: integer, minimum: 0 }
+        highRiskCourseCount: { type: integer, minimum: 0 }
+        planCompletionRate: { type: [number, 'null'], minimum: 0, maximum: 1 }
+    CounselorClassComparisonResult:
+      type: object
+      additionalProperties: false
+      required: [classes, period, riskTrend]
+      properties:
+        classes: { type: array, items: { $ref: '#/components/schemas/CounselorClassComparison' } }
+        period: { type: string, enum: [7D, 30D, TERM] }
+        riskTrend:
+          type: array
+          items: { $ref: '#/components/schemas/ClassRiskTrendPoint' }
+    ClassRiskTrendPoint:
+      type: object
+      additionalProperties: false
+      required: [className, weekStart, averageRiskProbability]
+      properties:
+        className: { type: string }
+        weekStart: { type: string, format: date }
+        averageRiskProbability: { type: number, minimum: 0, maximum: 1 }
+    RiskCaseStatus:
+      type: string
+      enum: [OPEN, IN_PROGRESS, RESOLVED, CLOSED]
+    RiskActionStatus:
+      type: string
+      enum: [PENDING, IN_PROGRESS, COMPLETED, CANCELLED]
+    RiskCaseSummary:
+      type: object
+      additionalProperties: false
+      required: [caseId, courseId, studentId, studentName, courseTitle, triggerType, riskBand, title, summary, status, priority, assignedTo, assigneeName, version, createdAt, updatedAt, resolvedAt, closedAt]
+      properties:
+        caseId: { type: string, format: uuid }
+        courseId: { type: string, format: uuid }
+        studentId: { type: string, format: uuid }
+        studentName: { type: string }
+        courseTitle: { type: string }
+        triggerType: { type: string }
+        riskBand: { $ref: '#/components/schemas/RiskBand' }
+        title: { type: string }
+        summary: { type: string }
+        status: { $ref: '#/components/schemas/RiskCaseStatus' }
+        priority: { type: string }
+        assignedTo: { type: [string, 'null'], format: uuid }
+        assigneeName: { type: [string, 'null'] }
+        version: { type: integer, format: int64, minimum: 0 }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        resolvedAt: { type: [string, 'null'], format: date-time }
+        closedAt: { type: [string, 'null'], format: date-time }
+    RiskCasePage:
+      type: object
+      additionalProperties: false
+      required: [items, total, page, size]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/RiskCaseSummary' } }
+        total: { type: integer, minimum: 0 }
+        page: { type: integer, minimum: 0 }
+        size: { type: integer, minimum: 1 }
+    RiskAssignment:
+      type: object
+      additionalProperties: false
+      required: [assignmentId, fromAssignee, toAssignee, changedBy, reason, createdAt]
+      properties:
+        assignmentId: { type: string, format: uuid }
+        fromAssignee: { type: [string, 'null'], format: uuid }
+        toAssignee: { type: string, format: uuid }
+        changedBy: { type: string, format: uuid }
+        reason: { type: string }
+        createdAt: { type: string, format: date-time }
+    RiskInternalNote:
+      type: object
+      additionalProperties: false
+      required: [noteId, authorId, authorName, body, createdAt]
+      properties:
+        noteId: { type: string, format: uuid }
+        authorId: { type: string, format: uuid }
+        authorName: { type: string }
+        body: { type: string }
+        createdAt: { type: string, format: date-time }
+    RiskFeedback:
+      type: object
+      additionalProperties: false
+      required: [feedbackId, studentId, body, createdAt]
+      properties:
+        feedbackId: { type: string, format: uuid }
+        studentId: { type: string, format: uuid }
+        body: { type: string }
+        createdAt: { type: string, format: date-time }
+    RiskActionItem:
+      type: object
+      additionalProperties: false
+      required: [actionItemId, caseId, studentId, title, description, status, dueAt, resultSummary, createdAt, startedAt, completedAt, feedback]
+      properties:
+        actionItemId: { type: string, format: uuid }
+        caseId: { type: string, format: uuid }
+        studentId: { type: string, format: uuid }
+        title: { type: string }
+        description: { type: string }
+        status: { $ref: '#/components/schemas/RiskActionStatus' }
+        dueAt: { type: [string, 'null'], format: date-time }
+        resultSummary: { type: [string, 'null'] }
+        createdAt: { type: string, format: date-time }
+        startedAt: { type: [string, 'null'], format: date-time }
+        completedAt: { type: [string, 'null'], format: date-time }
+        feedback: { type: array, items: { $ref: '#/components/schemas/RiskFeedback' } }
+    RiskCaseDetail:
+      type: object
+      additionalProperties: false
+      required: [riskCase, assignments, internalNotes, actionItems]
+      properties:
+        riskCase: { $ref: '#/components/schemas/RiskCaseSummary' }
+        assignments: { type: array, items: { $ref: '#/components/schemas/RiskAssignment' } }
+        internalNotes: { type: array, items: { $ref: '#/components/schemas/RiskInternalNote' } }
+        actionItems: { type: array, items: { $ref: '#/components/schemas/RiskActionItem' } }
+    RiskCaseCreateRequest:
+      type: object
+      additionalProperties: false
+      required: [courseId, studentId, title, summary]
+      properties:
+        courseId: { type: string, format: uuid }
+        studentId: { type: string, format: uuid }
+        title: { type: string, minLength: 1, maxLength: 180 }
+        summary: { type: string, minLength: 1, maxLength: 1000 }
+    RiskAssignmentRequest:
+      type: object
+      additionalProperties: false
+      required: [assigneeId, reason, expectedVersion]
+      properties:
+        assigneeId: { type: string, format: uuid }
+        reason: { type: string, minLength: 1, maxLength: 300 }
+        expectedVersion: { type: integer, format: int64, minimum: 0 }
+    RiskStatusRequest:
+      type: object
+      additionalProperties: false
+      required: [targetStatus, reason, expectedVersion]
+      properties:
+        targetStatus: { $ref: '#/components/schemas/RiskCaseStatus' }
+        reason: { type: string, minLength: 1, maxLength: 300 }
+        expectedVersion: { type: integer, format: int64, minimum: 0 }
+    RiskNoteRequest:
+      type: object
+      additionalProperties: false
+      required: [body]
+      properties:
+        body: { type: string, minLength: 1, maxLength: 2000 }
+    RiskActionRequest:
+      type: object
+      additionalProperties: false
+      required: [title, description, dueAt]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 180 }
+        description: { type: string, minLength: 1, maxLength: 2000 }
+        dueAt: { type: string, format: date-time }
+    RiskActionStatusRequest:
+      type: object
+      additionalProperties: false
+      required: [targetStatus]
+      properties:
+        targetStatus: { $ref: '#/components/schemas/RiskActionStatus' }
+        resultSummary: { type: [string, 'null'], maxLength: 1000 }
+    RiskFeedbackRequest:
+      type: object
+      additionalProperties: false
+      required: [body]
+      properties:
+        body: { type: string, minLength: 1, maxLength: 1000 }
+    StudentRiskAction:
+      type: object
+      additionalProperties: false
+      required: [actionItemId, caseId, courseId, courseTitle, title, description, status, dueAt, resultSummary, feedback]
+      properties:
+        actionItemId: { type: string, format: uuid }
+        caseId: { type: string, format: uuid }
+        courseId: { type: string, format: uuid }
+        courseTitle: { type: string }
+        title: { type: string }
+        description: { type: string }
+        status: { $ref: '#/components/schemas/RiskActionStatus' }
+        dueAt: { type: [string, 'null'], format: date-time }
+        resultSummary: { type: [string, 'null'] }
+        feedback: { type: array, items: { $ref: '#/components/schemas/RiskFeedback' } }
+    AdminDatasetVersion:
+      type: object
+      required: [versionId, sourceKey, sourceName, lifecycleStatus, rowCount, manifestSha256, processedAt, referenced]
+      properties:
+        versionId: { type: string }
+        sourceKey: { type: string }
+        sourceName: { type: string }
+        lifecycleStatus: { type: string, enum: [ENABLED, DEPRECATED, RETIRED] }
+        rowCount: { type: integer, format: int64, minimum: 0 }
+        manifestSha256: { type: string, pattern: '^[a-f0-9]{64}$' }
+        processedAt: { type: string, format: date-time }
+        referenced: { type: boolean }
+    AdminDatasetList:
+      type: object
+      required: [items, total]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/AdminDatasetVersion' } }
+        total: { type: integer, minimum: 0 }
+    AdminStatusRequest:
+      type: object
+      additionalProperties: false
+      required: [status, reason]
+      properties:
+        status: { type: string, enum: [ENABLED, DEPRECATED, RETIRED] }
+        reason: { type: string, minLength: 1, maxLength: 500 }
+    AdminDatasetImpact:
+      type: object
+      required: [versionId, courseReferences, activeModelReferences, rollbackModelReferences, canDeprecate, canRetire, blockers]
+      properties:
+        versionId: { type: string }
+        courseReferences: { type: integer, minimum: 0 }
+        activeModelReferences: { type: integer, minimum: 0 }
+        rollbackModelReferences: { type: integer, minimum: 0 }
+        canDeprecate: { type: boolean }
+        canRetire: { type: boolean }
+        blockers: { type: array, uniqueItems: true, items: { type: string, enum: [COURSE_REFERENCE, ACTIVE_MODEL_REFERENCE, ROLLBACK_MODEL_REFERENCE] } }
+    AdminModelDeployment:
+      type: object
+      required: [taskName, activeVersionId, rollbackVersionId, deployedAt, deployedBy]
+      properties:
+        taskName: { type: string }
+        activeVersionId: { type: string }
+        rollbackVersionId: { type: [string, 'null'] }
+        deployedAt: { type: string, format: date-time }
+        deployedBy: { type: string }
+    AdminModelDeploymentList:
+      type: object
+      required: [items, total]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/AdminModelDeployment' } }
+        total: { type: integer, minimum: 0 }
+    AdminModelRollbackRequest:
+      type: object
+      additionalProperties: false
+      required: [expectedActiveVersionId, targetVersionId, reason]
+      properties:
+        expectedActiveVersionId: { type: string, minLength: 1, maxLength: 128 }
+        targetVersionId: { type: string, minLength: 1, maxLength: 128 }
+        reason: { type: string, minLength: 1, maxLength: 500 }
+    AdminModelRollbackResult:
+      type: object
+      required: [deployment, affectedModules]
+      properties:
+        deployment: { $ref: '#/components/schemas/AdminModelDeployment' }
+        affectedModules: { type: array, minItems: 1, uniqueItems: true, items: { type: string } }
+    AdminAuditEvent:
+      type: object
+      required: [id, actorUserId, actorDisplayName, action, targetType, targetId, outcome, correlationId, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        actorUserId: { type: string, format: uuid }
+        actorDisplayName: { type: string }
+        activeRole: { anyOf: [ { $ref: '#/components/schemas/UserRole' }, { type: 'null' } ] }
+        action: { type: string }
+        targetType: { type: string }
+        targetId: { type: string }
+        outcome: { type: string, enum: [SUCCEEDED, FAILED] }
+        reason: { type: [string, 'null'] }
+        errorCode: { type: [string, 'null'] }
+        beforeJson: { type: [string, 'null'] }
+        afterJson: { type: [string, 'null'] }
+        metadataJson: { type: [string, 'null'] }
+        correlationId: { type: [string, 'null'], format: uuid }
+        createdAt: { type: string, format: date-time }
+    AdminAuditList:
+      type: object
+      required: [items, total, page, size]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/AdminAuditEvent' } }
+        total: { type: integer, format: int64, minimum: 0 }
+        page: { type: integer, minimum: 0 }
+        size: { type: integer, minimum: 1, maximum: 100 }
+    LmsContentStatus:
+      type: string
+      enum: [DRAFT, PUBLISHED, ARCHIVED]
+    AssessmentStatus:
+      type: string
+      enum: [DRAFT, PUBLISHED, CLOSED, CANCELLED, ARCHIVED]
+    LmsCourse:
+      type: object
+      additionalProperties: false
+      required: [courseId, code, title, description, status, startsOn, sectionCount, assessmentCount, enrolledStudentCount, credits, assignmentRole]
+      properties:
+        courseId: { type: string, format: uuid }
+        code: { type: string, minLength: 1, maxLength: 50 }
+        title: { type: string, minLength: 1, maxLength: 160 }
+        termLabel: { type: [string, 'null'], maxLength: 80 }
+        description: { type: string, maxLength: 2000 }
+        status: { $ref: '#/components/schemas/LmsContentStatus' }
+        startsOn: { type: string, format: date }
+        sectionCount: { type: integer, minimum: 0 }
+        assessmentCount: { type: integer, minimum: 0 }
+        enrolledStudentCount: { type: integer, minimum: 0 }
+        college: { type: [string, 'null'] }
+        department: { type: [string, 'null'] }
+        credits: { type: number, format: double, minimum: 0.5, maximum: 20 }
+        instructorName: { type: [string, 'null'] }
+        assignmentRole: { type: string, enum: [OWNER, CO_TEACHER] }
+    LmsCourseList:
+      type: object
+      additionalProperties: false
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/LmsCourse' }
+        total: { type: integer, minimum: 0 }
+    CourseMutationRequest:
+      type: object
+      additionalProperties: false
+      required: [code, title, credits, description, startsOn]
+      properties:
+        code: { type: string, minLength: 2, maxLength: 50 }
+        title: { type: string, minLength: 2, maxLength: 160 }
+        termLabel: { type: [string, 'null'], maxLength: 80 }
+        credits: { type: number, minimum: 0.5, maximum: 20 }
+        description: { type: string, maxLength: 2000 }
+        startsOn: { type: string, format: date }
+    LmsContentStatusChangeRequest:
+      type: object
+      additionalProperties: false
+      anyOf:
+        - required: [status]
+        - required: [targetStatus]
+      properties:
+        status: { $ref: '#/components/schemas/LmsContentStatus' }
+        expectedCurrentStatus: { $ref: '#/components/schemas/LmsContentStatus' }
+        targetStatus: { $ref: '#/components/schemas/LmsContentStatus' }
+        reason: { type: [string, 'null'], maxLength: 500 }
+    AssessmentStatusChangeRequest:
+      type: object
+      additionalProperties: false
+      anyOf:
+        - required: [status]
+        - required: [targetStatus]
+      properties:
+        status: { $ref: '#/components/schemas/AssessmentStatus' }
+        expectedCurrentStatus: { $ref: '#/components/schemas/AssessmentStatus' }
+        targetStatus: { $ref: '#/components/schemas/AssessmentStatus' }
+        reason: { type: [string, 'null'], maxLength: 500 }
+    LmsLesson:
+      type: object
+      additionalProperties: false
+      required: [lessonId, title, summary, body, resourceUrl, position, status, completed]
+      properties:
+        lessonId: { type: string, format: uuid }
+        title: { type: string }
+        summary: { type: string }
+        body: { type: string }
+        resourceUrl: { type: [string, 'null'], format: uri }
+        position: { type: integer, minimum: 1 }
+        status: { $ref: '#/components/schemas/LmsContentStatus' }
+        completed: { type: boolean }
+    LmsSection:
+      type: object
+      additionalProperties: false
+      required: [sectionId, title, description, position, status, lessons]
+      properties:
+        sectionId: { type: string, format: uuid }
+        title: { type: string }
+        description: { type: string }
+        position: { type: integer, minimum: 1 }
+        status: { $ref: '#/components/schemas/LmsContentStatus' }
+        lessons:
+          type: array
+          items: { $ref: '#/components/schemas/LmsLesson' }
+    SectionMutationRequest:
+      type: object
+      additionalProperties: false
+      required: [title, description, status]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 180 }
+        description: { type: string, maxLength: 500 }
+        status: { $ref: '#/components/schemas/LmsContentStatus' }
+    LessonMutationRequest:
+      type: object
+      additionalProperties: false
+      required: [title, summary, body, resourceUrl, status]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 180 }
+        summary: { type: string, maxLength: 500 }
+        body: { type: string, minLength: 1 }
+        resourceUrl: { type: [string, 'null'], format: uri }
+        status: { $ref: '#/components/schemas/LmsContentStatus' }
+    CourseOutline:
+      type: object
+      additionalProperties: false
+      required: [course, sections, assessments, completedLessonCount, totalLessonCount]
+      properties:
+        course: { $ref: '#/components/schemas/LmsCourse' }
+        sections:
+          type: array
+          items: { $ref: '#/components/schemas/LmsSection' }
+        assessments:
+          type: array
+          items: { $ref: '#/components/schemas/AssessmentSummary' }
+        completedLessonCount: { type: integer, minimum: 0 }
+        totalLessonCount: { type: integer, minimum: 0 }
+    RosterStudent:
+      type: object
+      additionalProperties: false
+      required: [studentId, username, displayName, studentNumber, college, major, cohortYear, className, enrolled, enrollmentStatus]
+      properties:
+        studentId: { type: string, format: uuid }
+        username: { type: string }
+        displayName: { type: string }
+        studentNumber: { type: string }
+        college: { type: string }
+        major: { type: string }
+        cohortYear: { type: integer }
+        className: { type: string }
+        enrolled: { type: boolean }
+        enrollmentStatus:
+          type: string
+          enum: [ACTIVE, COMPLETED, WITHDRAWN, AVAILABLE]
+    RosterList:
+      type: object
+      additionalProperties: false
+      required: [items, total, enrolledCount]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/RosterStudent' }
+        total: { type: integer, minimum: 0 }
+        enrolledCount: { type: integer, minimum: 0 }
+    EnrollmentUpdateRequest:
+      type: object
+      additionalProperties: false
+      required: [enrolled]
+      properties:
+        enrolled: { type: boolean }
+        reason: { type: [string, 'null'], maxLength: 500, description: Persisted in enrollment history. }
+    LifecycleImpactPreview:
+      type: object
+      additionalProperties: false
+      required: [entityType, entityId, currentStatus, targetStatus, affectedSectionCount, affectedLessonCount, affectedAssessmentCount, affectedStudentCount, affectedSubmissionCount, confirmationRequired]
+      properties:
+        entityType: { type: string }
+        entityId: { type: string, format: uuid }
+        currentStatus: { type: string }
+        targetStatus: { type: string }
+        affectedSectionCount: { type: integer, minimum: 0 }
+        affectedLessonCount: { type: integer, minimum: 0 }
+        affectedAssessmentCount: { type: integer, minimum: 0 }
+        affectedStudentCount: { type: integer, minimum: 0 }
+        affectedSubmissionCount: { type: integer, minimum: 0 }
+        confirmationRequired: { type: boolean }
+    ContentOrderRequest:
+      type: object
+      additionalProperties: false
+      required: [itemIds]
+      properties:
+        itemIds: { type: array, uniqueItems: true, items: { type: string, format: uuid } }
+    AssessmentDueDateRequest:
+      type: object
+      additionalProperties: false
+      required: [dueAt, reason]
+      properties:
+        dueAt: { type: string, format: date-time }
+        reason: { type: string, minLength: 1, maxLength: 500 }
+    AssessmentCancelRequest:
+      type: object
+      additionalProperties: false
+      required: [reason]
+      properties:
+        reason: { type: string, minLength: 1, maxLength: 500 }
+    AssessmentCloneRequest:
+      type: object
+      additionalProperties: false
+      required: [title, dueAt]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 180 }
+        dueAt: { type: [string, 'null'], format: date-time }
+    AttemptRequestCreate:
+      type: object
+      additionalProperties: false
+      required: [requestType, reason]
+      properties:
+        requestType: { type: string, enum: [MAKEUP, RETAKE, APPEAL] }
+        reason: { type: string, minLength: 1, maxLength: 500 }
+        requestedDueAt: { type: [string, 'null'], format: date-time }
+        studentId: { type: [string, 'null'], format: uuid, description: Required for a teacher-proactive grant and ignored for self-service requests. }
+    AttemptRequestDecision:
+      type: object
+      additionalProperties: false
+      required: [decision, reason]
+      properties:
+        decision: { type: string, enum: [APPROVED, REJECTED] }
+        reason: { type: string, minLength: 1, maxLength: 500 }
+        personalDueAt: { type: [string, 'null'], format: date-time }
+    AttemptRequest:
+      type: object
+      additionalProperties: false
+      required: [requestId, assessmentId, studentId, requestType, status, reason, requestedDueAt, personalDueAt, requestedBy, decidedBy, decisionReason, requestedAt, decidedAt, consumed]
+      properties:
+        requestId: { type: string, format: uuid }
+        assessmentId: { type: string, format: uuid }
+        studentId: { type: string, format: uuid }
+        requestType: { type: string, enum: [MAKEUP, RETAKE, APPEAL] }
+        status: { type: string, enum: [PENDING, APPROVED, REJECTED] }
+        reason: { type: string }
+        requestedDueAt: { type: [string, 'null'], format: date-time }
+        personalDueAt: { type: [string, 'null'], format: date-time }
+        requestedBy: { type: string, format: uuid }
+        decidedBy: { type: [string, 'null'], format: uuid }
+        decisionReason: { type: [string, 'null'] }
+        requestedAt: { type: string, format: date-time }
+        decidedAt: { type: [string, 'null'], format: date-time }
+        consumed: { type: boolean }
+    AttemptRequestList:
+      type: object
+      additionalProperties: false
+      required: [items, total]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/AttemptRequest' } }
+        total: { type: integer, minimum: 0 }
+    AssessmentOption:
+      type: object
+      additionalProperties: false
+      required: [choiceId, label]
+      properties:
+        choiceId: { type: string, minLength: 1, maxLength: 80 }
+        label: { type: string, minLength: 1, maxLength: 500 }
+    AssessmentQuestion:
+      type: object
+      additionalProperties: false
+      required: [questionId, prompt, options, points, position]
+      properties:
+        questionId: { type: string, format: uuid }
+        prompt: { type: string }
+        options:
+          type: array
+          minItems: 2
+          items: { $ref: '#/components/schemas/AssessmentOption' }
+        points: { type: number, exclusiveMinimum: 0 }
+        position: { type: integer, minimum: 1 }
+    AssessmentQuestionRequest:
+      type: object
+      additionalProperties: false
+      required: [prompt, options, correctChoiceId, points, skillIds]
+      properties:
+        prompt: { type: string, minLength: 1 }
+        options:
+          type: array
+          minItems: 2
+          items: { $ref: '#/components/schemas/AssessmentOption' }
+        correctChoiceId: { type: string, minLength: 1, maxLength: 80 }
+        points: { type: number, exclusiveMinimum: 0 }
+        skillIds:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: { type: string, format: uuid }
+    KnowledgeSkillSummary:
+      type: object
+      required: [skillId, skillCode, name, contentOrigin]
+      properties:
+        skillId: { type: string, format: uuid }
+        skillCode: { type: string }
+        name: { type: string }
+        contentOrigin: { type: string, enum: [CURATED_SYNTHETIC, TEACHER_AUTHORED, SOURCE_COMPATIBLE] }
+    KnowledgeSkillList:
+      type: object
+      required: [items, total]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/KnowledgeSkillSummary' } }
+        total: { type: integer, minimum: 0 }
+    AssessmentSummary:
+      type: object
+      additionalProperties: false
+      required: [assessmentId, courseId, title, description, assessmentType, status, dueAt, questionCount, submissionCount, submitted, score, maxScore, learnerState, attemptCount, remainingAttemptCount]
+      properties:
+        assessmentId: { type: string, format: uuid }
+        courseId: { type: string, format: uuid }
+        title: { type: string }
+        description: { type: string }
+        assessmentType: { type: string, enum: [ASSIGNMENT, QUIZ] }
+        status: { $ref: '#/components/schemas/AssessmentStatus' }
+        dueAt: { type: [string, 'null'], format: date-time }
+        questionCount: { type: integer, minimum: 0 }
+        submissionCount: { type: integer, minimum: 0 }
+        submitted: { type: boolean }
+        score: { type: [number, 'null'] }
+        maxScore: { type: number, minimum: 0 }
+        learnerState: { type: [string, 'null'], enum: [AVAILABLE, SUBMITTED, CLOSED_UNSUBMITTED, CANCELLED, null] }
+        attemptCount: { type: integer, minimum: 0 }
+        remainingAttemptCount: { type: integer, minimum: 0 }
+    AssessmentList:
+      type: object
+      additionalProperties: false
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/AssessmentSummary' }
+        total: { type: integer, minimum: 0 }
+    AssessmentDetail:
+      type: object
+      additionalProperties: false
+      required: [assessmentId, courseId, title, description, assessmentType, status, dueAt, questionCount, submissionCount, submitted, score, maxScore, questions]
+      properties:
+        assessmentId: { type: string, format: uuid }
+        courseId: { type: string, format: uuid }
+        title: { type: string }
+        description: { type: string }
+        assessmentType: { type: string, enum: [ASSIGNMENT, QUIZ] }
+        status: { $ref: '#/components/schemas/AssessmentStatus' }
+        dueAt: { type: [string, 'null'], format: date-time }
+        questionCount: { type: integer, minimum: 0 }
+        submissionCount: { type: integer, minimum: 0 }
+        submitted: { type: boolean }
+        score: { type: [number, 'null'] }
+        maxScore: { type: number, minimum: 0 }
+        questions: { type: array, items: { $ref: '#/components/schemas/AssessmentQuestion' } }
+    AssessmentMutationRequest:
+      type: object
+      additionalProperties: false
+      required: [title, description, assessmentType, dueAt, questions]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 180 }
+        description: { type: string, maxLength: 500 }
+        assessmentType: { type: string, enum: [ASSIGNMENT, QUIZ] }
+        dueAt: { type: [string, 'null'], format: date-time }
+        questions:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/AssessmentQuestionRequest' }
+    AssessmentAnswerRequest:
+      type: object
+      additionalProperties: false
+      required: [questionId, selectedChoiceId]
+      properties:
+        questionId: { type: string, format: uuid }
+        selectedChoiceId: { type: string, minLength: 1, maxLength: 80 }
+    AssessmentSubmissionRequest:
+      type: object
+      additionalProperties: false
+      required: [answers]
+      properties:
+        answers:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/AssessmentAnswerRequest' }
+    AssessmentResult:
+      type: object
+      additionalProperties: false
+      required: [submissionId, assessmentId, studentId, score, maxScore, percentage, submittedAt, attemptNumber, attemptType, validForGrade, answers]
+      properties:
+        submissionId: { type: string, format: uuid }
+        assessmentId: { type: string, format: uuid }
+        studentId: { type: string, format: uuid }
+        score: { type: number, minimum: 0 }
+        maxScore: { type: number, minimum: 0 }
+        percentage: { type: number, minimum: 0, maximum: 100 }
+        submittedAt: { type: string, format: date-time }
+        attemptNumber: { type: integer, minimum: 1 }
+        attemptType: { type: string, enum: [INITIAL, MAKEUP, RETAKE, APPEAL] }
+        validForGrade: { type: boolean }
+        answers:
+          type: array
+          items:
+            type: object
+            required: [questionId, selectedChoiceId, correctChoiceId, correct, pointsAwarded]
+            properties:
+              questionId: { type: string, format: uuid }
+              selectedChoiceId: { type: string }
+              correctChoiceId: { type: string }
+              correct: { type: boolean }
+              pointsAwarded: { type: number, minimum: 0 }
+    AssessmentAttemptList:
+      type: object
+      additionalProperties: false
+      required: [items, total, currentSubmissionId, currentScore]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/AssessmentResult' } }
+        total: { type: integer, minimum: 0 }
+        currentSubmissionId: { type: [string, 'null'], format: uuid }
+        currentScore: { type: [number, 'null'], minimum: 0 }
+    GradeItem:
+      type: object
+      additionalProperties: false
+      required: [assessmentId, title, studentId, displayName, submitted, score, maxScore, percentage, submittedAt, attemptCount]
+      properties:
+        assessmentId: { type: string, format: uuid }
+        title: { type: string }
+        studentId: { type: string, format: uuid }
+        displayName: { type: string }
+        submitted: { type: boolean }
+        score: { type: [number, 'null'] }
+        maxScore: { type: number, minimum: 0 }
+        percentage: { type: [number, 'null'], minimum: 0, maximum: 100 }
+        submittedAt: { type: [string, 'null'], format: date-time }
+        attemptCount: { type: integer, minimum: 0 }
+    GradeList:
+      type: object
+      additionalProperties: false
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/GradeItem' }
+        total: { type: integer, minimum: 0 }
+    FieldViolation:
+      type: object
+      additionalProperties: false
+      required: [field, message]
+      properties:
+        field:
+          type: string
+          minLength: 1
+        message:
+          type: string
+          minLength: 1
+    ProblemDetail:
+      type: object
+      additionalProperties: false
+      required: [type, title, status, detail, instance, code, traceId, violations]
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+          minLength: 1
+        status:
+          type: integer
+          minimum: 400
+          maximum: 599
+        detail:
+          type: string
+          minLength: 1
+        instance:
+          type: string
+          minLength: 1
+        code:
+          type: string
+          minLength: 1
+        traceId:
+          type: string
+          minLength: 1
+        violations:
+          type: array
+          items:
+            $ref: '#/components/schemas/FieldViolation'

@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "provider": "DEEPSEEK",
+  "model": "deepseek-v4-flash",
+  "modelVersion": "deepseek-v4-flash-tool-schema-v1",
+  "requiredTool": "getTwinEvidence",
+  "requiredToolCallCount": 1,
+  "evidenceLimit": 5,
+  "evidenceSource": "model-computed-shap",
+  "fallbackVersion": "template-diagnosis-v1",
+  "additionalRiskReasonsAllowed": false
+}

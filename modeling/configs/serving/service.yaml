@@ -1,0 +1,10 @@
+schema_version: 1
+service_version: 1.0.0
+
+paths:
+  knowledge_freeze_manifest: artifacts/manifests/knowledge-freeze.json
+  risk_freeze_manifest: artifacts/manifests/risk-freeze.json
+
+contracts:
+  knowledge: assistments-event-v1
+  risk: oulad-d0-29-v1

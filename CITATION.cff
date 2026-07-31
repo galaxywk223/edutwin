@@ -1,0 +1,12 @@
+cff-version: 1.2.0
+message: "If EduTwin supports academic work, cite this software and the applicable datasets."
+title: "EduTwin: Learning Analytics and Digital Learning Profiles"
+type: software
+authors:
+  - family-names: "Wang"
+    given-names: "Kai"
+repository-code: "https://github.com/galaxywk223/edutwin"
+url: "https://galaxywk223.github.io/edutwin/"
+license: Apache-2.0
+version: 1.0.0
+date-released: 2026-07-31

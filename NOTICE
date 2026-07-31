@@ -1,0 +1,21 @@
+EduTwin
+Copyright 2026 Wang Kai
+
+EduTwin source code is licensed under the Apache License, Version 2.0.
+
+Dataset terms remain independent from the source-code license.
+
+ASSISTments 2009-2010 Skill Builder data is released by the ASSISTments/WPI
+research team under non-standard research terms. The data must not be
+redistributed. EduTwin publishes processing code, algorithms, source metadata,
+and hashes, but does not publish the raw dataset or student-level derived data.
+
+Open University Learning Analytics Dataset (OULAD) is made available by The
+Open University under Creative Commons Attribution 4.0 International.
+
+Kuzilek, J., Hlosta, M. & Zdrahal, Z. Open University Learning Analytics
+dataset. Scientific Data 4, 170171 (2017).
+https://doi.org/10.1038/sdata.2017.171
+
+The showcase dataset is deterministic synthetic data created by EduTwin. It
+does not represent real students, institutions, courses, or academic outcomes.

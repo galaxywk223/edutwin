@@ -1,0 +1,112 @@
+schema_version: 1
+seed: 42
+
+paths:
+  assistments_official_raw: ../data/raw/assistments/official/skill_builder_data.csv
+  assistments_mirror_zip: ../data/raw/assistments/mirror/2009_skill_builder_data_corrected.zip
+  assistments_mirror_csv: ../data/raw/assistments/mirror/skill_builder_data_corrected.csv
+  assistments_canonical: ../data/raw/assistments/canonical/skill_builder_data_corrected.csv
+  oulad_zip: ../data/raw/oulad/anonymisedData.zip
+  oulad_extracted: ../data/raw/oulad/extracted
+  assistments_output: ../data/processed/knowledge
+  oulad_output: ../data/processed/risk
+  fusion_output: ../data/processed/fusion
+  demo_output: ../data/demo/generated
+  manifest_output: ../data/manifests/processing-manifest.json
+  source_lock: ../data/manifests/source-lock.json
+
+assistments:
+  encoding: ISO-8859-1
+  canonical_encoding: UTF-8
+  expected_columns: 30
+  expected_corrected_rows: 401756
+  expected_unique_order_ids: 346860
+  event_key: order_id
+  missing_skill_token: __MISSING_SKILL__
+  multi_skill_fields:
+    - skill_id
+    - skill_name
+    - opportunity
+    - opportunity_original
+  required_fields:
+    - order_id
+    - user_id
+    - problem_id
+    - correct
+  core_consistency_fields:
+    - assignment_id
+    - user_id
+    - assistment_id
+    - problem_id
+    - original
+    - correct
+    - attempt_count
+    - ms_first_response
+    - tutor_mode
+    - answer_type
+    - sequence_id
+    - student_class_id
+    - position
+    - type
+    - base_sequence_id
+    - teacher_id
+    - school_id
+    - hint_count
+    - hint_total
+    - overlap_time
+    - template_id
+    - answer_id
+    - answer_text
+    - first_action
+    - bottom_hint
+
+oulad:
+  feature_window_start_day: 0
+  feature_window_end_day: 29
+  positive_final_results:
+    - Fail
+  positive_withdrawal_after_day: 29
+  negative_final_results:
+    - Pass
+    - Distinction
+  excluded_feature_names:
+    - final_result
+    - date_unregistration
+  feature_contract_version: oulad-d0-29-v1
+
+split:
+  algorithm: sha256-u64-mod-10000-v1
+  namespace: edutwin-student-split-v1
+  train_upper_exclusive: 7000
+  validation_upper_exclusive: 8500
+  test_upper_exclusive: 10000
+
+matching:
+  dimensions:
+    - performance
+    - activity
+    - persistence
+  winsor_lower_quantile: 0.01
+  winsor_upper_quantile: 0.99
+  fit_split: train
+  without_replacement: true
+  tie_break: stable_source_key
+  target_counts:
+    train: 1400
+    validation: 300
+    test: 300
+  assistments_min_events: 20
+
+demo:
+  reference_time: '2026-06-15T00:00:00+00:00'
+  synthetic_students: 2000
+  minimum_unique_answer_events: 100000
+  minimum_source_events_per_student: 20
+  uuid_namespace: a3e0f31f-54f6-4f99-82e8-bf5e6fdd55e4
+  synthetic_flag: true
+  minimum_answer_events_per_active_enrollment: 18
+  maximum_answer_events_per_active_enrollment: 42
+  minimum_activity_events_per_active_enrollment: 56
+  maximum_activity_events_per_active_enrollment: 176
+  knowledge_skill_count: 60
+  question_count: 600

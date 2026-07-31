@@ -1,0 +1,118 @@
+schema_version: 2
+observed_at: "2026-07-11"
+
+storage_policy:
+  raw_root: data/raw
+  source_lock: data/manifests/source-lock.json
+  raw_data_tracked: false
+  raw_data_in_container_images: false
+  raw_data_on_server: false
+
+datasets:
+  assistments_2009_2010_skill_builder:
+    display_name: ASSISTments 2009-2010 Skill Builder
+    official_landing_url: https://sites.google.com/site/assistmentsdata/home/2009-2010-assistment-data/skill-builder-data-2009-2010
+    terms_url: https://sites.google.com/site/assistmentsdata/termsofuseforusingdata
+    license_kind: non-standard-terms
+    redistribution_allowed: false
+
+    official_raw_nonfolded:
+      role: provenance-and-canonicalization-input
+      filename: skill_builder_data.csv
+      download_url_env: EDUTWIN_ASSISTMENTS_DOWNLOAD_URL
+      expected_bytes: 83201940
+      expected_data_rows: 525534
+      expected_columns: 30
+      sha256: null
+      hash_policy: computed-and-locked-after-download
+
+    official_corrected_collapsed_reference:
+      role: rejected-training-input
+      filename: skill_builder_data_corrected_collapsed.csv
+      reference_url: https://drive.google.com/file/d/1NNXHFRxcArrU0ZJSb9BIL56vmUt5FhlE/view
+      expected_bytes: 64412812
+      accepted: false
+      rejection_reason: Multiple skill identifiers are folded into one student-problem row.
+
+    corrected_nonfolded_academic_mirror:
+      role: independent-correction-reference
+      provider: USTC EduData
+      archive_filename: 2009_skill_builder_data_corrected.zip
+      download_url: https://base.ustc.edu.cn/data/ASSISTment/2009_skill_builder_data_corrected.zip
+      expected_archive_bytes: 9084422
+      archive_sha256: null
+      archive_hash_policy: computed-and-locked-after-download
+      entry:
+        filename: skill_builder_data_corrected.csv
+        expected_bytes: 63455745
+        expected_compressed_bytes: 9084224
+        expected_crc32: E0A1CC26
+        expected_data_rows: 401756
+        expected_unique_order_ids: 346860
+        expected_columns: 30
+
+    canonicalization:
+      input: official_raw_nonfolded
+      operation: stable-lineage-deduplication
+      lineage_key_excludes:
+        - answer_text
+        - opportunity
+        - opportunity_original
+      retained_row_policy: first-official-occurrence
+      answer_text_source: official_raw_nonfolded
+      expected_removed_rows: 123778
+      expected_output_rows: 401756
+      expected_unique_order_ids: 346860
+      expected_mirror_answer_text_mismatches: 83
+      expected_mirror_retained_opportunity_mismatches: 0
+      comparison_reference: corrected_nonfolded_academic_mirror
+      comparison_gates:
+        - exact-header-match
+        - one-to-one-stable-lineage-match
+        - retained-training-fields-match
+        - answer-text-mismatch-count-match
+        - order-id-core-field-consistency
+      knowledge_fields_allowed_to_vary_within_order_id:
+        - skill_id
+        - skill_name
+        - opportunity
+        - opportunity_original
+
+    rejected_mirrors:
+      - provider: Hugging Face
+        repository: OloriBern/assistments-dataset
+        filename: skill_builder_data_corrected.csv
+        observed_bytes: 64412812
+        observed_lfs_sha256: 162ef8d2d28bcbfea6591a282994062bd8d5eaa00636544292a0d268dca6e5da
+        reason: The file is a renamed copy of the official collapsed artifact.
+
+  oulad:
+    display_name: Open University Learning Analytics Dataset
+    official_landing_url: https://research.stem.open.ac.uk/ouanalyse/dataset/
+    official_cdn_url: https://schools.stem.open.ac.uk/cdn/files/anonymisedData.zip
+    dataset_doi: https://doi.org/10.6084/m9.figshare.5081998.v1
+    paper_doi: https://doi.org/10.1038/sdata.2017.171
+    license: CC-BY-4.0
+    license_url: https://creativecommons.org/licenses/by/4.0/
+    archive:
+      provider: Figshare
+      file_id: 8606371
+      filename: anonymisedData.zip
+      download_url: https://ndownloader.figshare.com/files/8606371
+      expected_bytes: 46750706
+      expected_md5: 7412686fd77cf0e0ee1e8c3e9b354308
+      sha256: null
+      hash_policy: computed-and-locked-after-download
+      expected_entries:
+        - assessments.csv
+        - courses.csv
+        - studentAssessment.csv
+        - studentInfo.csv
+        - studentRegistration.csv
+        - studentVle.csv
+        - vle.csv
+
+    rejected_endpoints:
+      - https://analyse.kmi.open.ac.uk/open-dataset/download
+      - https://analyse.kmi.open.ac.uk/open-dataset/downloadCheckSum
+    rejection_reason: Legacy endpoints currently redirect to an HTML landing page.

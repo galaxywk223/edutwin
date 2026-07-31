@@ -1,0 +1,752 @@
+asyncapi: 3.1.0
+info:
+  title: EduTwin Analysis Events
+  version: 2.0.0
+  description: |
+    Internal Redis Stream contract for the asynchronous answer-analysis lifecycle.
+    MySQL owns all business facts. Redis provides at-least-once delivery only;
+    every consumer must deduplicate by eventId before applying a transition.
+defaultContentType: application/json
+
+servers:
+  compose:
+    host: redis:6379
+    protocol: redis
+    description: Redis reachable only from the Compose network.
+    x-redis-database: 0
+    x-publicly-exposed: false
+  browserApi:
+    host: 127.0.0.1:8080
+    protocol: http
+    description: Authenticated browser-facing assistant SSE endpoint.
+
+channels:
+  assistantMessageEvents:
+    address: /api/v1/assistant/messages/{messageId}/events
+    description: Persisted role-isolated assistant generation events with Last-Event-ID recovery.
+    servers:
+      - $ref: '#/servers/browserApi'
+    parameters:
+      messageId:
+        description: Assistant message identifier.
+    messages:
+      assistantEvent:
+        $ref: '#/components/messages/AssistantEvent'
+  analysisEvents:
+    address: analysis-events
+    description: Ordered transport log for answer-analysis lifecycle events.
+    servers:
+      - $ref: '#/servers/compose'
+    messages:
+      analysisRequested:
+        $ref: '#/components/messages/AnalysisRequested'
+      analysisStarted:
+        $ref: '#/components/messages/AnalysisStarted'
+      predictionsComputed:
+        $ref: '#/components/messages/PredictionsComputed'
+      twinSnapshotCreated:
+        $ref: '#/components/messages/TwinSnapshotCreated'
+      learningPlanCreated:
+        $ref: '#/components/messages/LearningPlanCreated'
+      analysisCompleted:
+        $ref: '#/components/messages/AnalysisCompleted'
+      analysisFailed:
+        $ref: '#/components/messages/AnalysisFailed'
+    x-redis-stream:
+      key: analysis-events
+      deliverySemantics: at-least-once
+      consumerGroup: edutwin-analysis-v1
+      readCommand: XREADGROUP
+      acknowledgementCommand: XACK
+      reclaimCommand: XAUTOCLAIM
+      reclaimIdleMilliseconds: 30000
+      entryFields:
+        event_id: UUID copied from envelope.eventId
+        event_type: Discriminator copied from envelope.eventType
+        event_version: Integer copied from envelope.eventVersion
+        payload: UTF-8 JSON serialization of the complete envelope
+        published_at: RFC 3339 timestamp assigned by the outbox relay
+        delivery_attempt: Positive outbox publication attempt number
+      trimming: MINID may advance only beyond every active consumer group's acknowledged position and the configured retention floor.
+
+operations:
+  receiveAssistantMessageEvents:
+    action: receive
+    summary: Receive persisted and live assistant tool and message events.
+    channel:
+      $ref: '#/channels/assistantMessageEvents'
+    messages:
+      - $ref: '#/channels/assistantMessageEvents/messages/assistantEvent'
+    x-recovery-header: Last-Event-ID
+  publishAnalysisLifecycle:
+    action: send
+    summary: Publish a committed lifecycle event through the transactional outbox relay.
+    channel:
+      $ref: '#/channels/analysisEvents'
+    messages:
+      - $ref: '#/channels/analysisEvents/messages/analysisRequested'
+      - $ref: '#/channels/analysisEvents/messages/analysisStarted'
+      - $ref: '#/channels/analysisEvents/messages/predictionsComputed'
+      - $ref: '#/channels/analysisEvents/messages/twinSnapshotCreated'
+      - $ref: '#/channels/analysisEvents/messages/learningPlanCreated'
+      - $ref: '#/channels/analysisEvents/messages/analysisCompleted'
+      - $ref: '#/channels/analysisEvents/messages/analysisFailed'
+    x-producer: backend-outbox-relay
+  consumeAnalysisLifecycle:
+    action: receive
+    summary: Route events idempotently to analysis, SSE, cache, and dashboard projections.
+    channel:
+      $ref: '#/channels/analysisEvents'
+    messages:
+      - $ref: '#/channels/analysisEvents/messages/analysisRequested'
+      - $ref: '#/channels/analysisEvents/messages/analysisStarted'
+      - $ref: '#/channels/analysisEvents/messages/predictionsComputed'
+      - $ref: '#/channels/analysisEvents/messages/twinSnapshotCreated'
+      - $ref: '#/channels/analysisEvents/messages/learningPlanCreated'
+      - $ref: '#/channels/analysisEvents/messages/analysisCompleted'
+      - $ref: '#/channels/analysisEvents/messages/analysisFailed'
+    x-consumer-group: edutwin-analysis-v1
+    x-acknowledgement-rule: XACK only after the idempotent MySQL handler transaction commits.
+
+components:
+  messages:
+    AssistantEvent:
+      name: assistant.message-event.v1
+      title: Assistant message event
+      contentType: application/json
+      correlationId:
+        location: $message.payload#/messageId
+      payload:
+        $ref: '#/components/schemas/AssistantEventEnvelope'
+    AnalysisRequested:
+      name: analysis.requested.v1
+      title: Analysis requested
+      summary: A committed answer event has created a queued analysis job.
+      contentType: application/json
+      correlationId:
+        location: $message.payload#/correlationId
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/EventEnvelope'
+          - type: object
+            required: [payload]
+            properties:
+              eventType:
+                type: string
+                enum: [analysis.requested.v1]
+              eventVersion:
+                type: integer
+                enum: [1]
+              payload:
+                $ref: '#/components/schemas/AnalysisRequestedPayload'
+    AnalysisStarted:
+      name: analysis.started.v1
+      title: Analysis started
+      summary: A worker lease moved the job from QUEUED to PROCESSING.
+      contentType: application/json
+      correlationId:
+        location: $message.payload#/correlationId
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/EventEnvelope'
+          - type: object
+            required: [payload]
+            properties:
+              eventType:
+                type: string
+                enum: [analysis.started.v1]
+              eventVersion:
+                type: integer
+                enum: [1]
+              payload:
+                $ref: '#/components/schemas/AnalysisStartedPayload'
+    PredictionsComputed:
+      name: predictions.computed.v1
+      title: Predictions computed
+      summary: Mastery, next-question, and risk values were persisted, using fallbacks where required.
+      contentType: application/json
+      correlationId:
+        location: $message.payload#/correlationId
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/EventEnvelope'
+          - type: object
+            required: [payload]
+            properties:
+              eventType:
+                type: string
+                enum: [predictions.computed.v1]
+              eventVersion:
+                type: integer
+                enum: [1]
+              payload:
+                $ref: '#/components/schemas/PredictionsComputedPayload'
+    TwinSnapshotCreated:
+      name: twin.snapshot-created.v1
+      title: Twin snapshot created
+      summary: An immutable snapshot was inserted and the mutable current pointer advanced.
+      contentType: application/json
+      correlationId:
+        location: $message.payload#/correlationId
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/EventEnvelope'
+          - type: object
+            required: [payload]
+            properties:
+              eventType:
+                type: string
+                enum: [twin.snapshot-created.v1]
+              eventVersion:
+                type: integer
+                enum: [1]
+              payload:
+                $ref: '#/components/schemas/TwinSnapshotCreatedPayload'
+    LearningPlanCreated:
+      name: learning-plan.created.v1
+      title: Learning plan created
+      summary: The rule engine persisted a versioned learning plan and its evidence links.
+      contentType: application/json
+      correlationId:
+        location: $message.payload#/correlationId
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/EventEnvelope'
+          - type: object
+            required: [payload]
+            properties:
+              eventType:
+                type: string
+                enum: [learning-plan.created.v1]
+              eventVersion:
+                type: integer
+                enum: [1]
+              payload:
+                $ref: '#/components/schemas/LearningPlanCreatedPayload'
+    AnalysisCompleted:
+      name: analysis.completed.v1
+      title: Analysis completed
+      summary: The job reached COMPLETED, including structurally equivalent degraded completion.
+      contentType: application/json
+      correlationId:
+        location: $message.payload#/correlationId
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/EventEnvelope'
+          - type: object
+            required: [payload]
+            properties:
+              eventType:
+                type: string
+                enum: [analysis.completed.v1]
+              eventVersion:
+                type: integer
+                enum: [1]
+              payload:
+                $ref: '#/components/schemas/AnalysisCompletedPayload'
+    AnalysisFailed:
+      name: analysis.failed.v1
+      title: Analysis failed
+      summary: The job reached FAILED after a non-recoverable error or exhausted processing attempts.
+      contentType: application/json
+      correlationId:
+        location: $message.payload#/correlationId
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/EventEnvelope'
+          - type: object
+            required: [payload]
+            properties:
+              eventType:
+                type: string
+                enum: [analysis.failed.v1]
+              eventVersion:
+                type: integer
+                enum: [1]
+              payload:
+                $ref: '#/components/schemas/AnalysisFailedPayload'
+
+  schemas:
+    AssistantEventEnvelope:
+      type: object
+      additionalProperties: false
+      required: [sequence, messageId, type, occurredAt, data]
+      properties:
+        sequence:
+          type: integer
+          format: int64
+          minimum: 1
+        messageId:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum:
+            - message.started
+            - tool.started
+            - tool.completed
+            - message.delta
+            - message.completed
+            - message.failed
+        occurredAt:
+          type: string
+          format: date-time
+        data:
+          type: object
+          additionalProperties: true
+    EventEnvelope:
+      type: object
+      description: Complete, versioned trace envelope persisted in outbox_event before publication.
+      required:
+        - eventId
+        - eventType
+        - eventVersion
+        - occurredAt
+        - producedAt
+        - traceId
+        - correlationId
+        - causationId
+        - producer
+        - aggregateType
+        - aggregateId
+        - aggregateVersion
+        - studentId
+        - courseId
+        - answerEventId
+        - answerEventVersion
+        - analysisJobId
+        - analysisJobVersion
+        - snapshotId
+        - snapshotVersion
+        - learningPlanId
+        - learningPlanVersion
+        - dataVersionIds
+        - modelVersionIds
+      properties:
+        eventId:
+          type: string
+          format: uuid
+          description: Immutable event identity and consumer deduplication key.
+        eventType:
+          type: string
+          description: Versioned lifecycle discriminator.
+        eventVersion:
+          type: integer
+          minimum: 1
+        occurredAt:
+          type: string
+          format: date-time
+          description: Time of the committed business transition.
+        producedAt:
+          type: string
+          format: date-time
+          description: Immutable time at which the business event and Outbox row were committed.
+        traceId:
+          type: string
+          minLength: 16
+          maxLength: 64
+        correlationId:
+          type: string
+          format: uuid
+          description: Stable across the answer event and its complete analysis lifecycle.
+        causationId:
+          type: string
+          format: uuid
+          description: eventId of the direct cause; the first event uses answerEventId.
+        producer:
+          type: string
+          enum: [business-backend, analysis-worker, recovery-reconciler]
+        aggregateType:
+          type: string
+          enum: [ANALYSIS_JOB]
+        aggregateId:
+          type: string
+          format: uuid
+          description: Equal to analysisJobId.
+        aggregateVersion:
+          type: integer
+          minimum: 1
+          description: Monotonic version used to reject stale lifecycle events.
+        studentId:
+          type: string
+          format: uuid
+        courseId:
+          type: string
+          format: uuid
+        answerEventId:
+          type: string
+          format: uuid
+        answerEventVersion:
+          type: integer
+          minimum: 1
+        analysisJobId:
+          type: string
+          format: uuid
+        analysisJobVersion:
+          type: integer
+          minimum: 1
+        snapshotId:
+          $ref: '#/components/schemas/NullableUuid'
+        snapshotVersion:
+          $ref: '#/components/schemas/NullablePositiveInteger'
+        learningPlanId:
+          $ref: '#/components/schemas/NullableUuid'
+        learningPlanVersion:
+          $ref: '#/components/schemas/NullablePositiveInteger'
+        dataVersionIds:
+          $ref: '#/components/schemas/DataVersionIds'
+        modelVersionIds:
+          $ref: '#/components/schemas/ModelVersionIds'
+
+    NullableUuid:
+      oneOf:
+        - type: string
+          format: uuid
+        - type: 'null'
+
+    NullablePositiveInteger:
+      oneOf:
+        - type: integer
+          minimum: 1
+        - type: 'null'
+
+    DataVersionIds:
+      type: object
+      additionalProperties: false
+      required: [assistments, oulad, fusion]
+      properties:
+        assistments:
+          type: string
+          minLength: 1
+        oulad:
+          type: string
+          minLength: 1
+        fusion:
+          type: string
+          minLength: 1
+
+    ModelVersionIds:
+      type: object
+      additionalProperties: false
+      required: [mastery, nextQuestion, risk, explainer, planner, diagnosis]
+      properties:
+        mastery:
+          type: string
+          minLength: 1
+          description: BKT or the versioned mastery fallback.
+        nextQuestion:
+          type: string
+          minLength: 1
+          description: Frozen DKT/AKT winner or the versioned probability fallback.
+        risk:
+          type: string
+          minLength: 1
+          description: Frozen risk winner or the versioned risk fallback.
+        explainer:
+          type: string
+          minLength: 1
+          description: SHAP explainer or the versioned evidence fallback.
+        planner:
+          type: string
+          minLength: 1
+          description: Deterministic rule-engine version.
+        diagnosis:
+          type: string
+          minLength: 1
+          description: OpenAI-compatible model identifier or the versioned diagnosis template.
+
+    AnalysisRequestedPayload:
+      type: object
+      additionalProperties: false
+      required:
+        - requestedAt
+        - submissionSource
+        - idempotencyKeyHash
+        - answerSequence
+        - answerCorrect
+        - responseTimeMs
+        - knowledgeComponentIds
+      properties:
+        requestedAt:
+          type: string
+          format: date-time
+        submissionSource:
+          type: string
+          enum: [PUBLIC_API, DEMO_SEED, RECOVERY]
+        idempotencyKeyHash:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+        answerSequence:
+          type: integer
+          minimum: 1
+          description: Monotonic within one student-course pair.
+        answerCorrect:
+          type: boolean
+        responseTimeMs:
+          type: integer
+          minimum: 0
+        knowledgeComponentIds:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+        recoveryReason:
+          type: string
+          maxLength: 200
+
+    AnalysisStartedPayload:
+      type: object
+      additionalProperties: false
+      required: [startedAt, leaseOwner, leaseExpiresAt, processingAttempt]
+      properties:
+        startedAt:
+          type: string
+          format: date-time
+        leaseOwner:
+          type: string
+          minLength: 1
+          maxLength: 128
+        leaseExpiresAt:
+          type: string
+          format: date-time
+        processingAttempt:
+          type: integer
+          minimum: 1
+
+    PredictionsComputedPayload:
+      type: object
+      additionalProperties: false
+      required:
+        - computedAt
+        - masteryChanges
+        - nextQuestionProbability
+        - riskProbability
+        - degraded
+        - degradedStages
+      properties:
+        computedAt:
+          type: string
+          format: date-time
+        masteryChanges:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/MasteryChange'
+        nextQuestionProbability:
+          $ref: '#/components/schemas/ProbabilityChange'
+        riskProbability:
+          $ref: '#/components/schemas/ProbabilityChange'
+        degraded:
+          type: boolean
+        degradedStages:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/DegradedStage'
+
+    MasteryChange:
+      type: object
+      additionalProperties: false
+      required: [knowledgeComponentId, previousValue, currentValue, delta, method, modelVersionId]
+      properties:
+        knowledgeComponentId:
+          type: string
+          format: uuid
+        previousValue:
+          type: number
+          minimum: 0
+          maximum: 1
+        currentValue:
+          type: number
+          minimum: 0
+          maximum: 1
+        delta:
+          type: number
+          minimum: -1
+          maximum: 1
+        method:
+          type: string
+          enum: [BKT, RULE_FALLBACK]
+        modelVersionId:
+          type: string
+          minLength: 1
+
+    ProbabilityChange:
+      type: object
+      additionalProperties: false
+      required: [previousValue, currentValue, delta, method, modelVersionId]
+      properties:
+        previousValue:
+          type: number
+          minimum: 0
+          maximum: 1
+        currentValue:
+          type: number
+          minimum: 0
+          maximum: 1
+        delta:
+          type: number
+          minimum: -1
+          maximum: 1
+        method:
+          type: string
+          minLength: 1
+        modelVersionId:
+          type: string
+          minLength: 1
+
+    TwinSnapshotCreatedPayload:
+      type: object
+      additionalProperties: false
+      required:
+        - snapshotId
+        - snapshotVersion
+        - previousSnapshotId
+        - createdAt
+        - immutable
+        - changedFields
+      properties:
+        snapshotId:
+          type: string
+          format: uuid
+        snapshotVersion:
+          type: integer
+          minimum: 1
+        previousSnapshotId:
+          $ref: '#/components/schemas/NullableUuid'
+        createdAt:
+          type: string
+          format: date-time
+        immutable:
+          type: boolean
+          enum: [true]
+        changedFields:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            enum:
+              - mastery
+              - nextQuestionProbability
+              - riskProbability
+              - engagement
+              - persistence
+              - planCompletion
+
+    LearningPlanCreatedPayload:
+      type: object
+      additionalProperties: false
+      required:
+        - learningPlanId
+        - learningPlanVersion
+        - previousLearningPlanId
+        - createdAt
+        - ruleEngineVersion
+        - itemCount
+        - diagnosisId
+        - degraded
+        - degradedStages
+      properties:
+        learningPlanId:
+          type: string
+          format: uuid
+        learningPlanVersion:
+          type: integer
+          minimum: 1
+        previousLearningPlanId:
+          $ref: '#/components/schemas/NullableUuid'
+        createdAt:
+          type: string
+          format: date-time
+        ruleEngineVersion:
+          type: string
+          minLength: 1
+        itemCount:
+          type: integer
+          minimum: 1
+        diagnosisId:
+          type: string
+          format: uuid
+        degraded:
+          type: boolean
+        degradedStages:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/DegradedStage'
+
+    AnalysisCompletedPayload:
+      type: object
+      additionalProperties: false
+      required:
+        - completedAt
+        - status
+        - degraded
+        - degradedStages
+        - terminalSseSequence
+        - dashboardRefreshRequired
+      properties:
+        completedAt:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [COMPLETED]
+        degraded:
+          type: boolean
+        degradedStages:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/DegradedStage'
+        terminalSseSequence:
+          type: integer
+          minimum: 1
+        dashboardRefreshRequired:
+          type: boolean
+          enum: [true]
+
+    AnalysisFailedPayload:
+      type: object
+      additionalProperties: false
+      required:
+        - failedAt
+        - status
+        - failedStage
+        - errorCode
+        - retryable
+        - processingAttempts
+        - terminalSseSequence
+      properties:
+        failedAt:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [FAILED]
+        failedStage:
+          type: string
+          enum: [AUTHORIZATION, PERSISTENCE, ORDERING, ANALYSIS, SNAPSHOT, PLANNING, DIAGNOSIS, INVARIANT]
+        errorCode:
+          type: string
+          pattern: '^[A-Z][A-Z0-9_]{2,63}$'
+        retryable:
+          type: boolean
+        processingAttempts:
+          type: integer
+          minimum: 1
+        terminalSseSequence:
+          type: integer
+          minimum: 1
+
+    DegradedStage:
+      type: string
+      enum:
+        - KNOWLEDGE_MODEL
+        - RISK_MODEL
+        - EXPLANATION
+        - DEEPSEEK_DIAGNOSIS
+        - LLM_DIAGNOSIS

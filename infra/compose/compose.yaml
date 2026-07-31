@@ -1,0 +1,333 @@
+name: ${COMPOSE_PROJECT_NAME:-edutwin}
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
+
+services:
+  mysql:
+    image: mysql:8.4.5
+    platform: linux/amd64
+    restart: unless-stopped
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+      - --default-time-zone=+00:00
+      - --transaction-isolation=READ-COMMITTED
+      - --innodb-flush-log-at-trx-commit=1
+      - --sync-binlog=1
+      - --log-bin-trust-function-creators=1
+      - --binlog-expire-logs-seconds=604800
+      - --max-connections=200
+      - --innodb-buffer-pool-size=768M
+      - --innodb-redo-log-capacity=1G
+      - --skip-name-resolve
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-edutwin}
+      MYSQL_USER: ${MYSQL_USER:-edutwin}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD is required}
+      TZ: UTC
+    volumes:
+      - mysql-data:/var/lib/mysql
+    networks:
+      - data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - mysqladmin ping --protocol=tcp -h 127.0.0.1 -u"$${MYSQL_USER}" --password="$${MYSQL_PASSWORD}" --silent
+      interval: 10s
+      timeout: 5s
+      start_period: 45s
+      retries: 10
+    stop_grace_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.50"
+          memory: 1536M
+          pids: 512
+        reservations:
+          memory: 512M
+    logging: *default-logging
+
+  redis:
+    image: redis:7.4.5-alpine
+    platform: linux/amd64
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --appendfsync
+      - everysec
+      - --save
+      - "60"
+      - "1000"
+      - --maxmemory
+      - 192mb
+      - --maxmemory-policy
+      - noeviction
+      - --requirepass
+      - ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+      TZ: UTC
+    volumes:
+      - redis-data:/data
+    networks:
+      - data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - REDISCLI_AUTH="$${REDIS_PASSWORD}" redis-cli --no-auth-warning ping | grep -q PONG
+      interval: 10s
+      timeout: 3s
+      start_period: 10s
+      retries: 5
+    stop_grace_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 256M
+          pids: 256
+        reservations:
+          memory: 64M
+    logging: *default-logging
+
+  model-service:
+    image: ${EDUTWIN_MODEL_IMAGE:-edutwin/model-service}:${EDUTWIN_IMAGE_TAG:-local}
+    platform: linux/amd64
+    build:
+      context: ../..
+      dockerfile: modeling/Dockerfile
+      args:
+        APP_VERSION: ${EDUTWIN_IMAGE_TAG:-local}
+        VCS_REF: ${EDUTWIN_VCS_REF:-unknown}
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+    environment:
+      EDUTWIN_MODEL_ARTIFACT_ROOT: /app/modeling/artifacts
+      EDUTWIN_MODEL_CONFIG: /app/modeling/configs/serving/service.yaml
+      EDUTWIN_LINEAGE_MANIFEST: /app/demo/manifest.json
+      EDUTWIN_MODEL_DEPLOYMENT_MODE: ${EDUTWIN_MODEL_DEPLOYMENT_MODE:-active}
+      OMP_NUM_THREADS: "2"
+      MKL_NUM_THREADS: "2"
+      CUDA_VISIBLE_DEVICES: ""
+      TZ: UTC
+    expose:
+      - "8000"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - curl --fail --silent --show-error http://127.0.0.1:8000/health >/dev/null
+      interval: 15s
+      timeout: 3s
+      start_period: 60s
+      retries: 5
+    networks:
+      - services
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "2.00"
+          memory: 2048M
+          pids: 256
+        reservations:
+          memory: 512M
+    logging: *default-logging
+
+  backend:
+    image: ${EDUTWIN_BACKEND_IMAGE:-edutwin/backend}:${EDUTWIN_IMAGE_TAG:-local}
+    platform: linux/amd64
+    build:
+      context: ../..
+      dockerfile: backend/Dockerfile
+      args:
+        APP_VERSION: ${EDUTWIN_IMAGE_TAG:-local}
+        VCS_REF: ${EDUTWIN_VCS_REF:-unknown}
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+    environment:
+      EDUTWIN_DB_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-edutwin}?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC&allowPublicKeyRetrieval=true&useSSL=false&rewriteBatchedStatements=true
+      EDUTWIN_DB_USER: ${MYSQL_USER:-edutwin}
+      EDUTWIN_DB_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}
+      EDUTWIN_DB_POOL_SIZE: "20"
+      EDUTWIN_DB_MIN_IDLE: "2"
+      EDUTWIN_REDIS_HOST: redis
+      EDUTWIN_REDIS_PORT: "6379"
+      EDUTWIN_REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+      EDUTWIN_MODEL_URL: http://model-service:8000
+      EDUTWIN_JWT_SECRET: ${EDUTWIN_JWT_SECRET:?EDUTWIN_JWT_SECRET is required}
+      EDUTWIN_ADMIN_USERNAME: ${EDUTWIN_ADMIN_USERNAME:?EDUTWIN_ADMIN_USERNAME is required}
+      EDUTWIN_ADMIN_PASSWORD: ${EDUTWIN_ADMIN_PASSWORD:?EDUTWIN_ADMIN_PASSWORD is required}
+      EDUTWIN_ADMIN_DISPLAY_NAME: ${EDUTWIN_ADMIN_DISPLAY_NAME:-System Administrator}
+      EDUTWIN_AI_ENABLED: ${EDUTWIN_AI_ENABLED:-false}
+      EDUTWIN_AI_FORCE_TIMEOUT: ${EDUTWIN_AI_FORCE_TIMEOUT:-false}
+      EDUTWIN_AI_TIMEOUT: ${EDUTWIN_AI_TIMEOUT:-PT2S}
+      EDUTWIN_AI_CONFIGURATION_TEST_TIMEOUT: ${EDUTWIN_AI_CONFIGURATION_TEST_TIMEOUT:-PT20S}
+      EDUTWIN_AI_CONFIG_ENCRYPTION_KEY: ${EDUTWIN_AI_CONFIG_ENCRYPTION_KEY:?EDUTWIN_AI_CONFIG_ENCRYPTION_KEY is required}
+      EDUTWIN_AI_ALLOW_INSECURE_BASE_URL: ${EDUTWIN_AI_ALLOW_INSECURE_BASE_URL:-false}
+      EDUTWIN_DEMO_IMPORT_ENABLED: ${EDUTWIN_DEMO_IMPORT_ENABLED:-true}
+      EDUTWIN_DEMO_IMPORT_ROOT: /app/demo
+      EDUTWIN_DEMO_AS_OF: ${EDUTWIN_DEMO_AS_OF:-}
+      EDUTWIN_DEMO_TEACHER_PASSWORD: ${EDUTWIN_DEMO_TEACHER_PASSWORD:?EDUTWIN_DEMO_TEACHER_PASSWORD is required}
+      EDUTWIN_DEMO_STUDENT_PASSWORD: ${EDUTWIN_DEMO_STUDENT_PASSWORD:?EDUTWIN_DEMO_STUDENT_PASSWORD is required}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-disabled}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-v4-flash}
+      EDUTWIN_LLM_API_KEY: ${EDUTWIN_LLM_API_KEY:-${DEEPSEEK_API_KEY:-disabled}}
+      EDUTWIN_LLM_BASE_URL: ${EDUTWIN_LLM_BASE_URL:-${DEEPSEEK_BASE_URL:-https://api.deepseek.com}}
+      EDUTWIN_LLM_MODEL: ${EDUTWIN_LLM_MODEL:-${DEEPSEEK_MODEL:-deepseek-v4-flash}}
+      TZ: UTC
+    expose:
+      - "8080"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - curl --fail --silent --show-error http://127.0.0.1:8080/actuator/health/readiness >/dev/null
+      interval: 15s
+      timeout: 3s
+      start_period: 75m
+      retries: 5
+    networks:
+      - services
+      - data
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      model-service:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 45s
+    deploy:
+      resources:
+        limits:
+          cpus: "2.00"
+          memory: 2048M
+          pids: 256
+        reservations:
+          memory: 384M
+    logging: *default-logging
+
+  frontend:
+    image: ${EDUTWIN_FRONTEND_IMAGE:-edutwin/frontend}:${EDUTWIN_IMAGE_TAG:-local}
+    platform: linux/amd64
+    build:
+      context: ../..
+      dockerfile: frontend/Dockerfile
+      args:
+        APP_VERSION: ${EDUTWIN_IMAGE_TAG:-local}
+        VCS_REF: ${EDUTWIN_VCS_REF:-unknown}
+        VITE_API_BASE_URL: /api/v1
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    expose:
+      - "8080"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget -q -O /dev/null http://127.0.0.1:8080/healthz
+      interval: 15s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+    networks:
+      - edge
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 128M
+          pids: 128
+        reservations:
+          memory: 32M
+    logging: *default-logging
+
+  caddy:
+    image: caddy:2.10.0-alpine
+    platform: linux/amd64
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    ports:
+      - name: http
+        target: 80
+        published: "80"
+        host_ip: 127.0.0.1
+        protocol: tcp
+        app_protocol: http
+    environment:
+      EDUTWIN_SITE_ADDRESS: ${EDUTWIN_SITE_ADDRESS:-http://localhost}
+    volumes:
+      - ../caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      - edge
+      - services
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget -q -O /dev/null http://localhost/healthz
+      interval: 10s
+      timeout: 3s
+      start_period: 10s
+      retries: 5
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 128M
+          pids: 128
+        reservations:
+          memory: 32M
+    logging: *default-logging
+
+networks:
+  edge:
+    name: ${COMPOSE_PROJECT_NAME:-edutwin}-edge
+  services:
+    name: ${COMPOSE_PROJECT_NAME:-edutwin}-services
+  data:
+    name: ${COMPOSE_PROJECT_NAME:-edutwin}-data
+    internal: true
+
+volumes:
+  mysql-data:
+    name: ${COMPOSE_PROJECT_NAME:-edutwin}-mysql-data
+  redis-data:
+    name: ${COMPOSE_PROJECT_NAME:-edutwin}-redis-data
+  caddy-data:
+    name: ${COMPOSE_PROJECT_NAME:-edutwin}-caddy-data
+  caddy-config:
+    name: ${COMPOSE_PROJECT_NAME:-edutwin}-caddy-config

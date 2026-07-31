@@ -1,0 +1,74 @@
+schema_version: 1
+seed: 42
+feature_contract_version: assistments-event-v1
+
+paths:
+  answer_events: ../data/processed/knowledge/answer_events.parquet
+  answer_event_skills: ../data/processed/knowledge/answer_event_skills.parquet
+  assistments_quality_report: ../data/processed/knowledge/quality_report.json
+  artifacts_root: artifacts/knowledge
+  freeze_manifest: artifacts/manifests/knowledge-freeze.json
+  test_state: artifacts/manifests/knowledge-test-state.json
+  test_metrics: artifacts/manifests/knowledge-test-metrics.json
+  test_lock: artifacts/manifests/knowledge-test-evaluation.lock
+
+data:
+  fit_split: train
+  selection_split: validation
+  final_split: test
+  split_algorithm: sha256-u64-mod-10000-v1
+  split_namespace: edutwin-student-split-v1
+  train_upper_exclusive: 7000
+  validation_upper_exclusive: 8500
+  test_upper_exclusive: 10000
+  calibration_fraction: 0.15
+  calibration_namespace: edutwin-knowledge-calibration-students-v1
+  max_sequence_length: 256
+  evaluation_target: post_initial_events
+
+training:
+  device: cuda
+
+evaluation:
+  ece_bins: 15
+  auc_tolerance: 0.005
+  latency_warmup_repeats: 1
+  latency_timed_repeats: 3
+  latency_sample_events: 2048
+  batch_size: 64
+  device: cpu
+
+models:
+  IRT:
+    epochs: 20
+    batch_size: 4096
+    learning_rate: 0.02
+    regularization: 0.0001
+    ability_prior_variance: 1.0
+  BKT:
+    em_iterations: 25
+    tolerance: 0.000001
+    minimum_skill_observations: 20
+    shrinkage: 50.0
+  DKT:
+    epochs: 12
+    batch_size: 64
+    learning_rate: 0.001
+    weight_decay: 0.0001
+    gradient_clip: 5.0
+    embedding_size: 64
+    hidden_size: 128
+    layers: 2
+    dropout: 0.2
+  AKT:
+    epochs: 12
+    batch_size: 64
+    learning_rate: 0.001
+    weight_decay: 0.0001
+    gradient_clip: 5.0
+    embedding_size: 64
+    hidden_size: 128
+    heads: 4
+    layers: 2
+    feedforward_size: 256
+    dropout: 0.2

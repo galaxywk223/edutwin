@@ -1,0 +1,60 @@
+schema_version: 1
+lifecycle_version: 2
+seed: 42
+feature_contract_version: oulad-d0-29-v1
+
+paths:
+  risk_units: ../data/processed/risk/risk_units.parquet
+  oulad_manifest: ../data/processed/risk/manifest.json
+  artifacts_root: artifacts/risk
+  freeze_manifest: artifacts/manifests/risk-freeze.json
+  test_state: artifacts/manifests/risk-test-state.json
+  test_metrics: artifacts/manifests/risk-test-metrics.json
+  test_lock: artifacts/manifests/risk-test-evaluation.lock
+
+data:
+  fit_split: train
+  selection_split: validation
+  final_split: test
+  split_algorithm: sha256-u64-mod-10000-v1
+  split_namespace: edutwin-student-split-v1
+  train_upper_exclusive: 7000
+  validation_upper_exclusive: 8500
+  test_upper_exclusive: 10000
+  calibration_fraction: 0.20
+  calibration_namespace: edutwin-risk-calibration-students-v1
+  observation_window_start_day: 0
+  observation_window_end_day: 29
+
+evaluation:
+  primary_metric: PR_AUC
+  pr_auc_tolerance: 0.005
+  latency_sample_size: 256
+  latency_warmup_repeats: 1
+  latency_timed_repeats: 3
+  device: cpu
+
+thresholds:
+  medium: 0.35
+  high: 0.65
+
+models:
+  LOGISTIC_REGRESSION:
+    c: 1.0
+    max_iter: 2000
+    class_weight: balanced
+  LIGHTGBM:
+    n_estimators: 300
+    learning_rate: 0.03
+    num_leaves: 31
+    max_depth: -1
+    min_child_samples: 20
+    subsample: 1.0
+    colsample_bytree: 1.0
+    reg_lambda: 0.1
+  CATBOOST:
+    iterations: 300
+    learning_rate: 0.03
+    depth: 6
+    l2_leaf_reg: 3.0
+    loss_function: Logloss

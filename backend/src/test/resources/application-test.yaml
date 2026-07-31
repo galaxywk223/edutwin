@@ -1,0 +1,27 @@
+spring:
+  datasource:
+    url: ${EDUTWIN_DB_URL:jdbc:mysql://127.0.0.1:33306/edutwin_test?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC&allowPublicKeyRetrieval=true&useSSL=false}
+    username: ${EDUTWIN_DB_USER:edutwin}
+    password: ${EDUTWIN_DB_PASSWORD:edutwin-local}
+  data:
+    redis:
+      host: ${EDUTWIN_REDIS_HOST:127.0.0.1}
+      port: ${EDUTWIN_REDIS_PORT:36379}
+      password: ${EDUTWIN_REDIS_PASSWORD:}
+  ai:
+    openai:
+      api-key: disabled
+      base-url: https://api.deepseek.com
+
+edutwin:
+  audit:
+    http-enabled: false
+  scheduling:
+    enabled: false
+  security:
+    jwt-secret: edutwin-test-only-jwt-secret-at-least-32-bytes
+    token-ttl: PT1H
+  ai:
+    enabled: false
+    configuration-encryption-key: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+    allow-insecure-base-url: true

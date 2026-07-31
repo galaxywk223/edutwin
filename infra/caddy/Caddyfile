@@ -1,0 +1,47 @@
+{
+	admin off
+}
+
+{$EDUTWIN_SITE_ADDRESS:http://localhost}, http://127.0.0.1 {
+	encode zstd gzip
+
+	log {
+		output stdout
+		format json
+	}
+
+	request_body {
+		max_size 2MB
+	}
+
+	header {
+		-Server
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+	}
+
+	handle /healthz {
+		respond "ok" 200
+	}
+
+	@api path /api/*
+	handle @api {
+		reverse_proxy backend:8080 {
+			flush_interval -1
+			transport http {
+				dial_timeout 2s
+				response_header_timeout 15s
+			}
+		}
+	}
+
+	handle {
+		reverse_proxy frontend:8080 {
+			transport http {
+				dial_timeout 2s
+				response_header_timeout 10s
+			}
+		}
+	}
+}

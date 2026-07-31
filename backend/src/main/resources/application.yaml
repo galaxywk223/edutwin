@@ -1,0 +1,99 @@
+spring:
+  application:
+    name: edutwin-backend
+  datasource:
+    url: ${EDUTWIN_DB_URL:jdbc:mysql://localhost:3306/edutwin?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC&allowPublicKeyRetrieval=true&useSSL=false}
+    username: ${EDUTWIN_DB_USER:edutwin}
+    password: ${EDUTWIN_DB_PASSWORD:edutwin-local}
+    hikari:
+      maximum-pool-size: ${EDUTWIN_DB_POOL_SIZE:20}
+      minimum-idle: ${EDUTWIN_DB_MIN_IDLE:2}
+      connection-timeout: 3000
+      validation-timeout: 1000
+  data:
+    redis:
+      host: ${EDUTWIN_REDIS_HOST:localhost}
+      port: ${EDUTWIN_REDIS_PORT:6379}
+      password: ${EDUTWIN_REDIS_PASSWORD:}
+      timeout: 2s
+      connect-timeout: 2s
+      lettuce:
+        pool:
+          max-active: 16
+          max-idle: 8
+          min-idle: 1
+  flyway:
+    enabled: true
+    validate-migration-naming: true
+    clean-disabled: true
+  ai:
+    openai:
+      api-key: ${EDUTWIN_LLM_API_KEY:${DEEPSEEK_API_KEY:disabled}}
+      base-url: ${EDUTWIN_LLM_BASE_URL:${DEEPSEEK_BASE_URL:https://api.deepseek.com}}
+      chat:
+        options:
+          model: ${EDUTWIN_LLM_MODEL:${DEEPSEEK_MODEL:deepseek-v4-flash}}
+          temperature: 0.1
+
+server:
+  port: ${EDUTWIN_BACKEND_PORT:8080}
+  shutdown: graceful
+  forward-headers-strategy: framework
+  error:
+    include-message: never
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+
+edutwin:
+  audit:
+    http-enabled: true
+  security:
+    jwt-secret: ${EDUTWIN_JWT_SECRET:change-this-local-development-secret-with-at-least-32-bytes}
+    token-ttl: ${EDUTWIN_TOKEN_TTL:PT8H}
+  admin-bootstrap:
+    username: ${EDUTWIN_ADMIN_USERNAME:}
+    password: ${EDUTWIN_ADMIN_PASSWORD:}
+    display-name: ${EDUTWIN_ADMIN_DISPLAY_NAME:System Administrator}
+  model-service:
+    enabled: ${EDUTWIN_MODEL_ENABLED:true}
+    base-url: ${EDUTWIN_MODEL_URL:http://localhost:8000}
+    connect-timeout: ${EDUTWIN_MODEL_CONNECT_TIMEOUT:PT1S}
+    response-timeout: ${EDUTWIN_MODEL_RESPONSE_TIMEOUT:PT2S}
+  analysis:
+    stream: analysis-events
+    consumer-group: edutwin-analysis-v1
+    consumer-name: ${HOSTNAME:local-backend}
+    worker-poll-delay: PT0.1S
+    reclaim-idle: PT30S
+    reclaim-batch-size: 10
+    outbox-batch-size: 100
+    outbox-poll-delay: PT0.1S
+    max-attempts: 5
+  ai:
+    enabled: ${EDUTWIN_AI_ENABLED:false}
+    force-timeout: ${EDUTWIN_AI_FORCE_TIMEOUT:false}
+    timeout: ${EDUTWIN_AI_TIMEOUT:PT8S}
+    assistant-timeout: ${EDUTWIN_AI_ASSISTANT_TIMEOUT:PT30S}
+    configuration-test-timeout: ${EDUTWIN_AI_CONFIGURATION_TEST_TIMEOUT:PT20S}
+    configuration-encryption-key: ${EDUTWIN_AI_CONFIG_ENCRYPTION_KEY:}
+    allow-insecure-base-url: ${EDUTWIN_AI_ALLOW_INSECURE_BASE_URL:false}
+  demo-import:
+    profile: ${EDUTWIN_DEMO_PROFILE:research}
+    enabled: ${EDUTWIN_DEMO_IMPORT_ENABLED:false}
+    root: ${EDUTWIN_DEMO_IMPORT_ROOT:data/demo/generated}
+    as-of: ${EDUTWIN_DEMO_AS_OF:}
+    teacher-password: ${EDUTWIN_DEMO_TEACHER_PASSWORD:}
+    student-password: ${EDUTWIN_DEMO_STUDENT_PASSWORD:}
+
+logging:
+  pattern:
+    level: "%5p [correlationId=%X{correlationId:-}]"

@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "ruleVersion": "planner-rules-v1",
+  "factsSource": "immutable-twin-snapshot",
+  "selection": {
+    "weakSkillOrder": ["masteryProbability", "skillName", "skillId"],
+    "maximumItems": 5,
+    "targetMastery": 0.8,
+    "targetCount": 3,
+    "validDays": 7
+  },
+  "llmMayChangeTaskFacts": false
+}

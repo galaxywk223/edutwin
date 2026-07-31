@@ -1,0 +1,648 @@
+openapi: 3.1.0
+jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
+info:
+  title: EduTwin Model Service API
+  version: 1.0.0
+  license:
+    name: Course demonstration use
+    identifier: LicenseRef-Course-Demonstration
+  description: |
+    Compose-internal FastAPI inference contract. The service loads frozen model,
+    preprocessing, calibration, and explanation artifacts. Caddy does not expose
+    these endpoints. Training and raw datasets are not present in the serving image.
+servers:
+  - url: http://model-service:8000
+    description: Compose service network
+tags:
+  - name: Knowledge
+    description: BKT mastery and DKT or AKT next-correct inference.
+  - name: Risk
+    description: Calibrated risk inference under the frozen feature contract.
+  - name: Explanation
+    description: Model-computed top-five SHAP evidence.
+  - name: Health
+    description: Serving artifact readiness.
+security: []
+paths:
+  /v1/knowledge/predict:
+    post:
+      tags: [Knowledge]
+      operationId: predictKnowledge
+      summary: Predict BKT mastery and next-question correctness
+      description: |
+        BKT is the fixed mastery estimator. The validation-selected DKT or AKT
+        artifact is the next-question predictor. The response uses only frozen
+        train-side vocabulary, normalization, preprocessing, and calibration data.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/KnowledgePredictRequest'
+      responses:
+        '200':
+          description: Knowledge inference completed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KnowledgePrediction'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /v1/risk/predict:
+    post:
+      tags: [Risk]
+      operationId: predictRisk
+      summary: Predict calibrated course risk
+      description: |
+        The selected logistic regression, LightGBM, or CatBoost artifact consumes
+        the frozen common feature contract. Features derived from final outcome,
+        withdrawal date, or activity after course day 29 are rejected.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RiskPredictRequest'
+      responses:
+        '200':
+          description: Calibrated risk inference completed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RiskPrediction'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /v1/explain:
+    post:
+      tags: [Explanation]
+      operationId: explainRisk
+      summary: Explain a risk prediction with model-computed SHAP values
+      description: |
+        The service recomputes the selected risk model output from the supplied
+        frozen feature vector and returns exactly the five largest absolute SHAP
+        contributions. No generative model participates in this operation.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExplainRequest'
+      responses:
+        '200':
+          description: Top-five SHAP explanation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExplainResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /health:
+    get:
+      tags: [Health]
+      operationId: getModelServiceHealth
+      summary: Report service and artifact readiness
+      responses:
+        '200':
+          description: Service is ready for inference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '406':
+          description: Requested response representation is not supported.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+        '503':
+          description: Required serving artifacts are unavailable or invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+components:
+  responses:
+    BadRequest:
+      description: Malformed request.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+    Conflict:
+      description: Requested model or prediction does not match the active frozen artifact.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+    UnprocessableEntity:
+      description: Feature contract, vocabulary, sequence, or trace validation failed.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+    ServiceUnavailable:
+      description: Required model artifacts are not ready.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+  schemas:
+    DataVersionRef:
+      type: object
+      additionalProperties: false
+      required: [sourceId, version, manifestSha256]
+      properties:
+        sourceId:
+          type: string
+          enum: [ASSISTMENTS_2009_2010_SKILL_BUILDER_CORRECTED, OULAD, EDUTWIN_DEMO]
+        version:
+          type: string
+          minLength: 1
+        manifestSha256:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+    ModelVersionRef:
+      type: object
+      additionalProperties: false
+      required: [purpose, family, modelName, modelVersion, artifactSha256, calibratorVersion]
+      properties:
+        purpose:
+          type: string
+          enum: [MASTERY, NEXT_CORRECT, RISK, EXPLANATION, DIAGNOSIS, PLAN_RULES]
+        family:
+          type: string
+          enum: [IRT, BKT, DKT, AKT, LOGISTIC_REGRESSION, LIGHTGBM, CATBOOST, SHAP, DEEPSEEK, OPENAI_COMPATIBLE, RULE, TEMPLATE]
+        modelName:
+          type: string
+          minLength: 1
+        modelVersion:
+          type: string
+          minLength: 1
+        artifactSha256:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+        calibratorVersion:
+          type: [string, 'null']
+          minLength: 1
+    TraceRef:
+      type: object
+      additionalProperties: false
+      required:
+        - correlationId
+        - answerEventId
+        - analysisJobId
+        - snapshotId
+        - dataVersions
+        - requestedModelVersions
+        - effectiveModelVersions
+      properties:
+        correlationId:
+          type: string
+          format: uuid
+        answerEventId:
+          type: string
+          format: uuid
+        analysisJobId:
+          type: string
+          format: uuid
+        snapshotId:
+          type: string
+          format: uuid
+          description: Identifier preallocated by the business transaction.
+        dataVersions:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/DataVersionRef'
+        requestedModelVersions:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/ModelVersionRef'
+        effectiveModelVersions:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/ModelVersionRef'
+    KnowledgeInteraction:
+      type: object
+      additionalProperties: false
+      required: [eventId, questionId, skillIds, correct, occurredAt, sequenceNumber]
+      properties:
+        eventId:
+          type: string
+          format: uuid
+        questionId:
+          type: string
+          format: uuid
+        skillIds:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+        correct:
+          type: boolean
+        occurredAt:
+          type: string
+          format: date-time
+        sequenceNumber:
+          type: integer
+          format: int64
+          minimum: 1
+    KnowledgePredictRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - trace
+        - studentId
+        - courseId
+        - interactions
+        - targetQuestionId
+        - targetSkillIds
+        - featureContractVersion
+      properties:
+        trace:
+          $ref: '#/components/schemas/TraceRef'
+        studentId:
+          type: string
+          format: uuid
+        courseId:
+          type: string
+          format: uuid
+        interactions:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/KnowledgeInteraction'
+        targetQuestionId:
+          type: string
+          format: uuid
+        targetSkillIds:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+        featureContractVersion:
+          type: string
+          minLength: 1
+    MasteryEstimate:
+      type: object
+      additionalProperties: false
+      required: [skillId, probability, estimatorModel]
+      properties:
+        skillId:
+          type: string
+          format: uuid
+        probability:
+          type: number
+          minimum: 0
+          maximum: 1
+        estimatorModel:
+          $ref: '#/components/schemas/ModelVersionRef'
+    KnowledgePrediction:
+      type: object
+      additionalProperties: false
+      required:
+        - trace
+        - mastery
+        - nextQuestionId
+        - nextCorrectProbability
+        - masteryModel
+        - nextPredictorModel
+        - selectedByValidation
+        - featureContractVersion
+        - inferenceLatencyMs
+      properties:
+        trace:
+          $ref: '#/components/schemas/TraceRef'
+        mastery:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/MasteryEstimate'
+        nextQuestionId:
+          type: string
+          format: uuid
+        nextCorrectProbability:
+          type: number
+          minimum: 0
+          maximum: 1
+        masteryModel:
+          $ref: '#/components/schemas/ModelVersionRef'
+        nextPredictorModel:
+          $ref: '#/components/schemas/ModelVersionRef'
+        selectedByValidation:
+          type: boolean
+          const: true
+        featureContractVersion:
+          type: string
+          minLength: 1
+        inferenceLatencyMs:
+          type: number
+          minimum: 0
+    ObservationWindow:
+      type: object
+      additionalProperties: false
+      required: [startDayInclusive, endDayInclusive]
+      properties:
+        startDayInclusive:
+          type: integer
+          const: 0
+        endDayInclusive:
+          type: integer
+          const: 29
+    RiskFeature:
+      type: object
+      additionalProperties: false
+      required: [name, value]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          pattern: '^[a-z][a-z0-9_]*$'
+        value:
+          type: number
+    RiskPredictRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - trace
+        - studentId
+        - courseId
+        - observationWindow
+        - featureContractVersion
+        - features
+      properties:
+        trace:
+          $ref: '#/components/schemas/TraceRef'
+        studentId:
+          type: string
+          format: uuid
+        courseId:
+          type: string
+          format: uuid
+        observationWindow:
+          $ref: '#/components/schemas/ObservationWindow'
+        featureContractVersion:
+          type: string
+          minLength: 1
+        features:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/RiskFeature'
+    RiskPrediction:
+      type: object
+      additionalProperties: false
+      required:
+        - trace
+        - probability
+        - calibrated
+        - riskBand
+        - mediumThreshold
+        - highThreshold
+        - model
+        - calibratorVersion
+        - featureContractVersion
+        - inferenceLatencyMs
+      properties:
+        trace:
+          $ref: '#/components/schemas/TraceRef'
+        probability:
+          type: number
+          minimum: 0
+          maximum: 1
+        calibrated:
+          type: boolean
+          const: true
+        riskBand:
+          type: string
+          enum: [LOW, MEDIUM, HIGH]
+        mediumThreshold:
+          type: number
+          minimum: 0
+          maximum: 1
+        highThreshold:
+          type: number
+          minimum: 0
+          maximum: 1
+        model:
+          $ref: '#/components/schemas/ModelVersionRef'
+        calibratorVersion:
+          type: string
+          minLength: 1
+        featureContractVersion:
+          type: string
+          minLength: 1
+        inferenceLatencyMs:
+          type: number
+          minimum: 0
+    ExplainRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - trace
+        - studentId
+        - courseId
+        - riskModelVersion
+        - featureContractVersion
+        - features
+      properties:
+        trace:
+          $ref: '#/components/schemas/TraceRef'
+        studentId:
+          type: string
+          format: uuid
+        courseId:
+          type: string
+          format: uuid
+        riskModelVersion:
+          type: string
+          minLength: 1
+        featureContractVersion:
+          type: string
+          minLength: 1
+        features:
+          type: array
+          minItems: 5
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/RiskFeature'
+    DiagnosisEvidence:
+      type: object
+      additionalProperties: false
+      required:
+        - trace
+        - rank
+        - featureName
+        - rawValue
+        - direction
+        - contribution
+        - baseValue
+        - outputUnit
+        - riskModelVersion
+      properties:
+        trace:
+          $ref: '#/components/schemas/TraceRef'
+        rank:
+          type: integer
+          minimum: 1
+          maximum: 5
+        featureName:
+          type: string
+          minLength: 1
+        rawValue:
+          type: number
+        direction:
+          type: string
+          enum: [INCREASES_RISK, DECREASES_RISK]
+        contribution:
+          type: number
+          description: Signed SHAP contribution.
+        baseValue:
+          type: number
+        outputUnit:
+          type: string
+          const: LOG_ODDS
+        riskModelVersion:
+          type: string
+          minLength: 1
+    ExplainResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - trace
+        - riskModelVersion
+        - baseValue
+        - outputValue
+        - outputUnit
+        - factors
+        - generatedAt
+        - inferenceLatencyMs
+      properties:
+        trace:
+          $ref: '#/components/schemas/TraceRef'
+        riskModelVersion:
+          type: string
+          minLength: 1
+        baseValue:
+          type: number
+        outputValue:
+          type: number
+        outputUnit:
+          type: string
+          const: LOG_ODDS
+        factors:
+          type: array
+          minItems: 5
+          maxItems: 5
+          items:
+            $ref: '#/components/schemas/DiagnosisEvidence'
+        generatedAt:
+          type: string
+          format: date-time
+        inferenceLatencyMs:
+          type: number
+          minimum: 0
+    LoadedArtifact:
+      type: object
+      additionalProperties: false
+      required: [model, manifestSha256, loaded]
+      properties:
+        model:
+          $ref: '#/components/schemas/ModelVersionRef'
+        manifestSha256:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+        loaded:
+          type: boolean
+    HealthResponse:
+      type: object
+      additionalProperties: false
+      required: [status, serviceVersion, checkedAt, loadedArtifacts, featureContractVersions]
+      properties:
+        status:
+          type: string
+          enum: [UP, DOWN]
+        serviceVersion:
+          type: string
+          minLength: 1
+        checkedAt:
+          type: string
+          format: date-time
+        loadedArtifacts:
+          type: array
+          minItems: 3
+          items:
+            $ref: '#/components/schemas/LoadedArtifact'
+        featureContractVersions:
+          type: array
+          minItems: 2
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+    FieldViolation:
+      type: object
+      additionalProperties: false
+      required: [field, message]
+      properties:
+        field:
+          type: string
+          minLength: 1
+        message:
+          type: string
+          minLength: 1
+    ProblemDetail:
+      type: object
+      additionalProperties: false
+      required: [type, title, status, detail, instance, code, traceId, violations]
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+          minLength: 1
+        status:
+          type: integer
+          minimum: 400
+          maximum: 599
+        detail:
+          type: string
+          minLength: 1
+        instance:
+          type: string
+          minLength: 1
+        code:
+          type: string
+          minLength: 1
+        traceId:
+          type: string
+          minLength: 1
+        violations:
+          type: array
+          items:
+            $ref: '#/components/schemas/FieldViolation'

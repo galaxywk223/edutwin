@@ -1,0 +1,127 @@
+{
+  "schema_version": 2,
+  "generated_at_utc": "07/12/2026 09:14:56",
+  "source_manifest": {
+    "path": "data/manifests/sources.yaml",
+    "bytes": 4533,
+    "sha256": "724cdb90d80d62923bd6cca9b363378f488db4b7b178337ae994780f720eecb3"
+  },
+  "generator": {
+    "path": "scripts/data/download-datasets.ps1",
+    "bytes": 36422,
+    "sha256": "5801e14ac2f982b267a04fbab372e694c426a7da3096384f843c2a530d570780",
+    "powershell": "7.6.3",
+    "canonicalizer": {
+      "path": "scripts/data/AssistmentsCanonicalizer.java",
+      "bytes": 20074,
+      "sha256": "2d020a7ca1b1a726a54cd88c36b84f173cba02154342c64ce941952b69f2c2f9"
+    },
+    "java": "openjdk version \"21.0.10\" 2026-01-20 LTS"
+  },
+  "assistments_2009_2010_skill_builder": {
+    "official_raw_nonfolded": {
+      "source_landing_url": "https://sites.google.com/site/assistmentsdata/home/2009-2010-assistment-data/skill-builder-data-2009-2010",
+      "download_url_env": "EDUTWIN_ASSISTMENTS_DOWNLOAD_URL",
+      "file": {
+        "path": "data/raw/assistments/official/skill_builder_data.csv",
+        "bytes": 83201940,
+        "sha256": "f22e3fb7872c1784ce93b0f9ebabbe0cbcac4f896fd8b4a11667b9715d77dbdc"
+      },
+      "expected_rows": 525534
+    },
+    "corrected_nonfolded_academic_mirror": {
+      "download_url": "https://base.ustc.edu.cn/data/ASSISTment/2009_skill_builder_data_corrected.zip",
+      "archive": {
+        "path": "data/raw/assistments/mirror/2009_skill_builder_data_corrected.zip",
+        "bytes": 9084422,
+        "sha256": "10c4fa76ae9410d8577cf9604cf21f8eed029552717a4b281d64945cf44ebe46"
+      },
+      "entry_crc32": "E0A1CC26",
+      "extracted": {
+        "path": "data/raw/assistments/mirror/skill_builder_data_corrected.csv",
+        "bytes": 63455745,
+        "sha256": "1aa296e00b6c88c4d6fad4ca2ae4866484d9fe5484f38f5c8c94dfc49f045e08"
+      }
+    },
+    "canonical_corrected_nonfolded": {
+      "file": {
+        "path": "data/raw/assistments/canonical/skill_builder_data_corrected.csv",
+        "bytes": 63054270,
+        "sha256": "6107edba93e2f894e55f72a23784945c6332e1b96bfe7089e81ff9d6305c2ab5"
+      },
+      "official_rows": 525534,
+      "official_repeated_lineage_rows": 123778,
+      "official_opportunity_variant_rows": 123778,
+      "rows": 401756,
+      "mirror_rows": 401756,
+      "unique_order_ids": 346860,
+      "mirror_answer_text_mismatches": 83,
+      "mirror_retained_opportunity_mismatches": 0,
+      "canonical_semantic_sha256": "5fae8bba98ed18656762a9d15b05a6278184aa065bc96d8f0cef5f336a842de6",
+      "semantic_hash_excludes": [
+        "answer_text"
+      ],
+      "lineage_key_excludes": [
+        "answer_text",
+        "opportunity",
+        "opportunity_original"
+      ],
+      "answer_text_source": "official_raw_nonfolded",
+      "official_mirror_lineage_match": true,
+      "retained_training_fields_match": true
+    }
+  },
+  "oulad": {
+    "download_url": "https://ndownloader.figshare.com/files/8606371",
+    "archive": {
+      "path": "data/raw/oulad/anonymisedData.zip",
+      "bytes": 46750706,
+      "sha256": "90dda45037939953f979072fa70a809ebe07e90ec783c408762af7698a3825ec",
+      "md5": "7412686fd77cf0e0ee1e8c3e9b354308"
+    },
+    "license": "CC-BY-4.0",
+    "dataset_doi": "10.6084/m9.figshare.5081998.v1",
+    "extracted_files": [
+      {
+        "path": "data/raw/oulad/extracted/assessments.csv",
+        "bytes": 8200,
+        "sha256": "8cc738fb88ad760571d6f2a23059bfee0ffcae3bcd830514c9cbd5c6d5a046f1"
+      },
+      {
+        "path": "data/raw/oulad/extracted/courses.csv",
+        "bytes": 526,
+        "sha256": "4f16eee7454b15e109b0a21a0e43be820e6846ed6f9301bb7feb5ab5ad737a75"
+      },
+      {
+        "path": "data/raw/oulad/extracted/studentAssessment.csv",
+        "bytes": 5690310,
+        "sha256": "fd5320786328d05af841ee7dd4b5871b9dada3b9fe9d6a3642b2f42635510a6e"
+      },
+      {
+        "path": "data/raw/oulad/extracted/studentInfo.csv",
+        "bytes": 3461652,
+        "sha256": "7e6f3e474a5eee00639d2a414a6c7e928745823c2d2c2563ca1780145f99b0d6"
+      },
+      {
+        "path": "data/raw/oulad/extracted/studentRegistration.csv",
+        "bytes": 1109984,
+        "sha256": "0d32676285372aaf2e7a80304e5b274b4fba24313e2ca4c04317225e1ec90170"
+      },
+      {
+        "path": "data/raw/oulad/extracted/studentVle.csv",
+        "bytes": 453836331,
+        "sha256": "52668253d876c5becbcb72185977152700cecab2942aca807fecc3dd54b937f0"
+      },
+      {
+        "path": "data/raw/oulad/extracted/vle.csv",
+        "bytes": 260126,
+        "sha256": "d1b28303dea802ad87b4484e1196e878e06824850b9a4fe8aa34693439fe87e9"
+      }
+    ]
+  },
+  "deployment_boundary": {
+    "raw_data_in_git": false,
+    "raw_data_in_images": false,
+    "raw_data_on_server": false
+  }
+}

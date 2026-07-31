@@ -1,0 +1,1 @@
+"""Frozen FastAPI inference service."""

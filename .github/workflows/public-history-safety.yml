@@ -1,0 +1,49 @@
+name: Public history safety
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Scan all reachable commits with Gitleaks
+        run: >-
+          docker run --rm
+          --volume "$PWD:/repo"
+          zricethezav/gitleaks:v8.30.1
+          git --no-banner --redact --log-opts=--all /repo
+
+      - name: Verify public history metadata
+        shell: pwsh
+        run: ./scripts/verify/verify-public-history.ps1
+
+      - name: Validate loopback deployment configuration
+        shell: pwsh
+        run: |
+          docker compose --env-file infra/env/.env.example -f infra/compose/compose.yaml config --quiet
+          $config = docker compose --env-file infra/env/.env.example -f infra/compose/compose.yaml config --format json | ConvertFrom-Json
+          $bindings = @($config.services.caddy.ports)
+          if ($bindings.Count -ne 1 -or
+              [string]$bindings[0].host_ip -ne '127.0.0.1' -or
+              [int]$bindings[0].published -ne 80) {
+              throw 'Caddy must publish port 80 only on 127.0.0.1.'
+          }
+
+      - name: Validate Caddy configuration
+        run: >-
+          docker run --rm
+          --env EDUTWIN_SITE_ADDRESS=http://localhost
+          --volume "$PWD/infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro"
+          caddy:2.10.0-alpine
+          caddy validate --config /etc/caddy/Caddyfile
