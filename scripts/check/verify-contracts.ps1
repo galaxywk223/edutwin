@@ -20,18 +20,31 @@ function Invoke-Checked {
 
 Push-Location $repositoryRoot
 try {
+    $publicApi = Join-Path $repositoryRoot 'contracts/openapi/public-api.yaml'
+    $modelApi = Join-Path $repositoryRoot 'contracts/openapi/model-api.yaml'
+    $asyncApi = Join-Path $repositoryRoot 'contracts/asyncapi/analysis-events.yaml'
+    $backendPom = Join-Path $repositoryRoot 'backend/pom.xml'
+
     Invoke-Checked npx @(
         '--yes', '@redocly/cli@2.38.0', 'lint',
-        '.\contracts\openapi\public-api.yaml',
-        '.\contracts\openapi\model-api.yaml'
+        $publicApi,
+        $modelApi
     )
     Invoke-Checked npx @(
         '--yes', '@asyncapi/cli@6.0.2', 'validate',
-        '.\contracts\asyncapi\analysis-events.yaml'
+        $asyncApi
     )
-    Invoke-Checked (Join-Path $repositoryRoot 'backend\mvnw.cmd') @(
-        '-q', '-f', '.\backend\pom.xml', 'generate-sources'
-    )
+    if ($IsWindows) {
+        Invoke-Checked (Join-Path $repositoryRoot 'backend/mvnw.cmd') @(
+            '-q', '-f', $backendPom, 'generate-sources'
+        )
+    }
+    else {
+        Invoke-Checked bash @(
+            (Join-Path $repositoryRoot 'backend/mvnw'),
+            '-q', '-f', $backendPom, 'generate-sources'
+        )
+    }
 }
 finally {
     Pop-Location

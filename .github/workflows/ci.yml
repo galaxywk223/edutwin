@@ -39,7 +39,7 @@ jobs:
           cache: maven
       - name: Start backend test dependencies
         run: docker compose -f infra/compose/test-dependencies.yaml up -d --wait --wait-timeout 120
-      - run: ./backend/mvnw -B -ntp -f backend/pom.xml test
+      - run: bash ./backend/mvnw -B -ntp -f backend/pom.xml test
       - name: Stop backend test dependencies
         if: always()
         run: docker compose -f infra/compose/test-dependencies.yaml down --volumes --remove-orphans
@@ -63,6 +63,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
       - name: Verify contracts
         shell: pwsh
         run: ./scripts/check/verify-contracts.ps1
