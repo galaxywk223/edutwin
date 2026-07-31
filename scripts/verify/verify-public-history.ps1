@@ -68,15 +68,34 @@ foreach ($revision in $revisions) {
     }
 }
 
-$emails = @(@(& git log --all --format='%ae%n%ce') | Sort-Object -Unique)
+$commitIdentities = @(& git log --all --format='%H%x09%ae%x09%ce')
 if ($LASTEXITCODE -ne 0) {
     throw 'Commit email inspection failed.'
 }
-foreach ($email in $emails) {
-    if ($email -notmatch '(^noreply@github\.com$|@users\.noreply\.github\.com$)') {
-        $violations.Add("commit_email: $email")
+
+$noreplyPattern = '(^noreply@github\.com$|@users\.noreply\.github\.com$)'
+foreach ($identity in $commitIdentities) {
+    $fields = @($identity -split "`t", 3)
+    if ($fields.Count -ne 3) {
+        throw "Unexpected commit identity record: $identity"
+    }
+
+    $commit = $fields[0]
+    $authorEmail = $fields[1]
+    $committerEmail = $fields[2]
+    if ($committerEmail -notmatch $noreplyPattern) {
+        $violations.Add("commit_committer_email: ${commit}: $committerEmail")
+    }
+    if ($authorEmail -notmatch $noreplyPattern -and $committerEmail -ne 'noreply@github.com') {
+        $violations.Add("commit_author_email: ${commit}: $authorEmail")
     }
 }
+
+$emails = @($commitIdentities | ForEach-Object {
+    $fields = @($_ -split "`t", 3)
+    $fields[1]
+    $fields[2]
+} | Sort-Object -Unique)
 
 if ($violations.Count -gt 0) {
     $violations | Sort-Object -Unique | ForEach-Object { Write-Error $_ }
